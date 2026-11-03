@@ -25,7 +25,7 @@ cd scripts/setup/docker-gpu
 ./run-eval-suite.sh undo                 # reverse order, each step removes only the files it generated
 ```
 
-Options: `--from N`, `--only N,M`, `--skip N,M`, `--with-thinking` (adds a thinking-mode coding run for the quants that fit), `--yes`.
+Options: `--from N`, `--only N,M`, `--skip N,M`, `--with-thinking` (adds a thinking-mode coding run: q8_0 KV, 2 slots x 16384 tokens, the three quants that fit that context; 53 min measured), `--yes`.
 
 Re-running after a failure resumes: finished jobs are skipped, partly finished ones continue (a spill sweep keeps its finished points; an interrupted coding run keeps its graded samples).
 
@@ -44,4 +44,4 @@ Re-running after a failure resumes: finished jobs are skipped, partly finished o
 - **CPU-offloaded runs** are the noise-sensitive ones: use a fixed thread count (6 beat the default 8 by about 12 % here), stop other CPU/IO work and do not run two benchmarks at once.
 - **KL divergence** measures damage from quantisation, not coding ability. The corpus is built from the machine owner's own code and is never published; only aggregate numbers are.
 - **The coding gate** can say a configuration is broken; it cannot rank two good ones. Truncated answers (`finish_reason == length`) are counted separately from wrong answers.
-- Thinking mode is the model's default; the gate runs with thinking off to stay comparable with earlier baselines unless `--with-thinking` is given.
+- Thinking mode is the model's default; the gate runs with thinking off to stay comparable with earlier baselines unless `--with-thinking` is given. A thinking sample may use up to 12000 tokens; samples that hit that limit are counted as truncated, not as wrong. Results: `../recipes/qwen-27b-quantisation-16gb.md`, section 4b.

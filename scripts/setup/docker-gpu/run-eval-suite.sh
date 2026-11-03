@@ -16,7 +16,7 @@
 #   3 bench-fit      speed vs context depth, quants that fit in VRAM              ~20 min
 #   4 eval-short     8 short coding tasks x 3 seeds, thinking off, all quants     ~60-90 min  Q5_K_M/Q8_0 are slow
 #   5 bench-spill    speed vs layers on the GPU, quants that spill (f16 KV)       ~45-60 min
-#   6 eval-thinking  (optional, --with-thinking) coding tasks with thinking ON, quants that fit   ~30-60 min
+#   6 eval-thinking  (optional, --with-thinking) coding tasks with thinking ON, IQ3_XXS/IQ3_S/Q3_K_XL, q8_0 KV, 2 slots   ~1-3 h (not measured)
 # Run ONE of these at a time and do not use the GPU/CPU meanwhile: the CPU-offload numbers are noise-sensitive.
 set -Eeuo pipefail
 
@@ -57,7 +57,7 @@ step_desc() {
     3) echo "speed vs context depth, quants that fit in VRAM";;
     4) echo "8 short coding tasks x 3 seeds (thinking off), all quants";;
     5) echo "speed vs layers on the GPU, quants that spill (f16 KV, 6 threads)";;
-    6) echo "short coding tasks with thinking ON, quants that fit";;
+    6) echo "short coding tasks with thinking ON (IQ3_XXS, IQ3_S, Q3_K_XL; q8_0 KV, 2 slots)";;
   esac
 }
 step_state_dir() { case $1 in 1) echo fit-memory;; 2) echo eval-kl;; 3|5) echo llama-bench;; 4|6) echo eval-short;; esac; }
@@ -73,7 +73,11 @@ run_child() {
     3) script=bench-ladder.sh; args=(--tier fit) ;;
     4) script=eval-short.sh; args=(--mode instruct) ;;
     5) script=bench-ladder.sh; args=(--tier spill --kv f16) ;;
-    6) script=eval-short.sh; args=(--mode thinking --quant UD-IQ3_XXS --quant UD-IQ3_S --quant UD-Q3_K_XL --quant UD-IQ4_XS) ;;
+    # Step 6: q8_0 KV and 2 slots (ctx 32768) are the only setting at which these three stay entirely on the GPU.
+    # The old setting (f16, 4 slots, ctx 65536) exceeded what fits for ALL four quants (max f16 ctx: 54.8K, 39.8K,
+    # 23.5K, 6.6K), so every run would have spilled to the CPU. IQ4_XS is left out: even with q8_0 only 12K tokens
+    # fit, less than one thinking sample needs.
+    6) script=eval-short.sh; args=(--mode thinking --kv q8_0 --parallel 2 --quant UD-IQ3_XXS --quant UD-IQ3_S --quant UD-Q3_K_XL) ;;
   esac
   env -u AIW_STATE_DIR SKIP_SUDO_V=1 "$SUITE_DIR/$script" "$mode" "${args[@]}" "$@"
 }

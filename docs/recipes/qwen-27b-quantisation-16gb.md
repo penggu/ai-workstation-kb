@@ -111,6 +111,22 @@ No answers were truncated and no requests failed. The earlier baseline for a 3-b
 - All failures are on two of the eight tasks. A typical `lru_cache` failure is `NameError: Node` (a helper class that was never defined); `evaluate` failures are parsing errors. That is a model weakness at this size, not a quantisation effect.
 - Wall time in the table of the full report is dominated by CPU offload for `Q4_K_M` and up (the server auto-fits layers), not a speed benchmark.
 
+### 4b. Thinking mode (2026-11-03)
+
+Same 8 tasks and 3 seeds, thinking on (the model's default; max 12000 tokens per answer), served with **q8_0 KV and 2 parallel slots of 16384** because that is the only configuration in which these quants stay on the GPU with a context large enough for one thinking sample. `UD-IQ4_XS` and larger were not run: at q8_0 KV `UD-IQ4_XS` fits only about 12K tokens in total. Raw: `data/benchmarks/eval-short-2026-11-03.jsonl` (this file also holds the instruct rows above). Whole run: 53 minutes for three quants.
+
+| Quant | Thinking passed | Truncated at 12000 tokens | Instruct passed (f16 KV) |
+|---|---:|---:|---:|
+| `UD-IQ3_XXS` | 20/24 | 4 | 22/24 |
+| `UD-IQ3_S` | 20/24 | 4 | 22/24 |
+| `UD-Q3_K_XL` | 21/24 | 3 | 22/24 |
+
+- **Every failure is a truncation, not a wrong answer.** Of the samples that finished, all passed (20/20, 20/20, 21/21). The model ran out of its 12000-token budget while still reasoning.
+- `evaluate` was truncated in all 9 samples (3 seeds x 3 quants); `topo_sort` once each for `IQ3_XXS` and `IQ3_S`. `lru_cache`, which was the weak task without thinking, passed 3/3 for all three quants; that is a 1-2 sample difference, within noise.
+- **Cost:** mean 3100-3900 completion tokens per sample (instruct: about 250), median 37-45 s per sample (instruct: about 15 s).
+- **Reading:** 24 samples cannot say whether thinking is better or worse (20-21 vs 22 of 24, intervals overlap). What the data does support: on harder tasks these quants can spend the whole budget thinking. In Claude Code, whose output cap is 16000 tokens, that is a real risk; for everyday coding, thinking off is faster and at least as reliable here.
+- **Not a clean A/B:** the thinking runs used q8_0 KV, the instruct runs f16 KV. The effect of KV precision on this gate was not measured separately.
+
 ## 5. Reproduce
 
 All steps are scripts in `scripts/setup/docker-gpu/`; each is idempotent, writes a trace under `~/.local/state/ai-workstation/<step>/`, and has an undo that removes only files the script generated.
@@ -135,10 +151,10 @@ llama-server -m <gguf> --jinja --reasoning off --no-webui -np 4 -t 6 -fit on -fi
 
 - Speed numbers: one machine, one day, one pinned image. Spilled runs are the noise-sensitive ones.
 - KL: a proxy. It says how far a quant is from Q8_0, not how often the code it writes is wrong.
-- The coding gate cannot rank good quants, and thinking mode (the model's default) was not tested.
+- The coding gate cannot rank good quants. Thinking mode was tested only for the three smallest quants, with q8_0 KV (see 4b), so its comparison with the instruct runs is not clean.
 - No test with real long agentic sessions (tool calls, file edits, 50K+ prompts). That is where `IQ3_S` and `Q3_K_XL` may differ in practice, and it is the missing evidence for the recommendation above.
 
 ## 7. Next
 
-- Thinking-mode run: `./run-eval-suite.sh apply --only 6 --with-thinking` (4 quants, about 1-2 h).
+- Thinking mode with a larger token budget (for example 24000) to see whether the truncated `evaluate` samples finish, and whether they then pass.
 - A larger, repo-based coding evaluation (more tasks, more seeds) to separate `IQ3_S` from `Q3_K_XL`.
