@@ -135,7 +135,9 @@ Tavily key (optional; free tier): put it, alone on one line, in `~/.config/ai-wo
 
 Tests: `python3 scripts/mcp/test_web_search_mcp.py` (16 tests, no network, no key: Tavily is a local fake, `ddgs` a stub): protocol, key only in the header and never in output or stderr, fallback and its wording, "found nothing" being an answer, output cap, argument clamping, control characters. `AIW_NET=1 uv run --no-project --with ddgs==9.16.0 python scripts/mcp/test_web_search_mcp.py Canary` runs against the real library and the real DuckDuckGo: it passed on 2026-11-03, and a real search returned links.
 
-Not verified: a real Tavily call (needs a key), and a Claude Code session on the local model actually calling the tool. How reliably a 3-bit 27B model chooses the tool and writes good queries is unknown.
+Confirmed on a Mac (2026-11-03), with DuckDuckGo only (no Tavily key): the server connects (`/mcp` shows `websearch` connected) and a search in a session on the local model works. The first attempt failed with `websearch (CONNECTION_CLOSED)` because of the Python version, see problem 6.
+
+Not verified: a real Tavily call (needs a key); the same on WSL; and how reliably a 3-bit 27B model chooses the tool, writes good queries and uses the returned URLs instead of guessing. "Works" here means the tool is called and returns results; the quality of the answers was not measured.
 
 ### 5. The server started without an API key (found in its log)
 
@@ -146,6 +148,14 @@ Cause: the key was handed to `docker run` through an exported environment variab
 Fix: `local-llm.sh` now passes the key with `--env-file` (a mode-600 file in the run's private temp directory, deleted as soon as docker has started; so not on a command line and not in the trace), and `start` fails if a request without a key, or with a wrong key, is not refused with 401/403. Lesson: a security property needs a test that tries to break it, not one that uses it correctly.
 
 Confirmed from the logs of two earlier starts; the fix is verified by the next `start` (to be recorded here).
+
+### 6. `websearch (CONNECTION_CLOSED)` on a Mac
+
+Symptom: in the local session `/mcp` or the start-up message says the `websearch` server failed with `CONNECTION_CLOSED`, and the model reports it cannot search.
+
+Cause: the server process exited at start. Running its command by hand showed why: `uv` used the Mac's system Python 3.9.6, and `ddgs==9.16.0` needs Python 3.10 or newer, so it answered `No solution found when resolving --with dependencies`. Claude Code only sees that the process closed.
+
+Fix: the command now asks for a suitable interpreter, `uv run --no-project --python ">=3.10" --with ddgs==9.16.0 ...`; `uv` downloads one on first use if none is installed. Diagnosis tip for any MCP server that "closes": run its command by hand, piping an `initialize` request into it, without `--quiet`, and read the error.
 
 ### 3. Notices that need no action
 
