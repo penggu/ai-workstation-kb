@@ -39,7 +39,8 @@ echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.en
 - If something already listens on the tunnel port, the script refuses to send the key to it. `--reuse-tunnel` overrides that when the listener is your own tunnel.
 - The server has one slot: two sessions at the same time queue behind each other.
 - Arguments the script does not know go to `claude`: `./claude-local.sh --resume`.
-- Tested on Linux with a stand-in `ssh`, server and `claude`: both modes, the tunnel closing after the session, the exit code passing through, the key absent from every command line. **Not yet run on a real Mac.**
+- Tested on Linux with a stand-in `ssh`, server and `claude`: both modes, the tunnel closing after the session, the exit code passing through, the key absent from every command line.
+- Confirmed on a real Mac (2026-11-02): the remote mode works, with the SSH host pointing at the machine's Tailscale name, so it no longer depends on the LAN address or a `.local` name (see `../base/tailscale-wsl.md`). What was checked: the session starts and answers. Not measured: the macOS bash version used, and long sessions.
 
 ### Defaults and why
 

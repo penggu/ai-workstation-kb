@@ -80,7 +80,7 @@ The machine stays in the Tailscale admin console's list until you delete it ther
 - An account that has been used before may list old devices (offline for months). Remove the ones you no longer use in the admin console: each is a key that could still be used.
 - By default every device on the account can reach every other device. Tailscale access rules (ACLs) can restrict that, for example to one device and one port. Not configured here.
 - Signing in needs an identity provider account (Google, Microsoft or GitHub). The coordination service sees which devices are online and when; traffic itself is end to end encrypted.
-- The model server from `claude-code-local.md` still listens on `127.0.0.1` only; use it through an SSH tunnel as described there. That the Claude Code remote mode works over the Tailscale address was not tested.
+- The model server from `claude-code-local.md` still listens on `127.0.0.1` only; use it through an SSH tunnel as described there. `claude-local.sh` in remote mode, with the SSH host set to this machine's Tailscale name, was confirmed to work from a Mac (2026-11-02).
 
 ## Not verified
 

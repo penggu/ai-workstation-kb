@@ -26,8 +26,8 @@
 # command line, in a file or in a log). The tunnel is bound to 127.0.0.1 on your machine. If something already listens
 # on the tunnel port, the key is NOT sent to it unless you pass --reuse-tunnel (you vouch it is your own tunnel).
 #
-# Written to run on macOS's old bash 3.2 too. The Mac side has not been tested by the author of this script; it was
-# tested with a stand-in ssh and server on Linux.
+# Written to run on macOS's old bash 3.2 too. Tested with a stand-in ssh and server on Linux, and confirmed to work
+# on a real Mac in remote mode (2026-11-02).
 set -euo pipefail
 
 PORT=${LOCAL_LLM_PORT:-8080}
