@@ -25,6 +25,15 @@ less ~/ollama-install.sh                       # read it first
 OLLAMA_VERSION=0.40.13 sh ~/ollama-install.sh  # no leading "v": "v0.40.13" gives a 404
 ```
 
+The installer is a third-party script and changes over time, so it is not copied into this repository. The copy that was read and run for this recipe (downloaded 2026-11-02, 15,902 bytes) has this fingerprint:
+
+```bash
+sha256sum ~/ollama-install.sh
+# 25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  (reviewed 2026-11-02)
+```
+
+A different hash means the official script has been updated: read it again before running it. The same hash only tells you that you have the file that was reviewed; it is not a statement that the script is safe.
+
 Verify:
 
 ```bash
