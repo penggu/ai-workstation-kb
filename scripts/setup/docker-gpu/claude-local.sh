@@ -1,39 +1,106 @@
 #!/usr/bin/env bash
 # claude-local.sh - start ONE Claude Code session that talks to the local llama-server (local-llm.sh) instead of
-# Anthropic's API. Nothing is written to disk and your normal `claude` is untouched: the settings exist only in the
-# environment of this one process. Run it inside the project you want to work on (it does not change directory).
+# Anthropic's API. Works in two places:
 #
-#   ./claude-local.sh [--dry-run] [-- claude args...]       e.g.  ./claude-local.sh -- -p "explain main.py"
+#   on the GPU machine (WSL/Linux):  reads the API key file and talks to 127.0.0.1 directly.
+#   on another machine (e.g. a Mac): opens an SSH tunnel to the GPU machine, fetches the key over SSH, and
+#                                    closes the tunnel when the session ends.
 #
-# Based on the settings measured in a private earlier project (Claude Code 2.1.309 on Windows); not yet re-verified
-# on this machine, so treat the first sessions as a test. Environment variables you can set:
-#   LOCAL_LLM_PORT (8080)  LOCAL_LLM_CTX (98304; must equal the server's --ctx)  LOCAL_LLM_MAX_OUTPUT (16000)
-#   LOCAL_LLM_MODEL (local-qwen; the --alias of the server)
+# Nothing is written to disk and your normal `claude` is untouched: the settings exist only in the environment of this
+# one process. Run it inside the project you want to work on (it does not change directory).
+#
+#   ./claude-local.sh [--dry-run] [--reuse-tunnel] [claude arguments...]
+#   e.g.   ./claude-local.sh --resume        ./claude-local.sh -p "explain main.py"
+# Options before `--` that the script does not know are passed to claude; `--` stops option parsing.
+#
+# REMOTE MODE needs the SSH host (an alias from your ~/.ssh/config). It is NOT stored in this repository: set it in
+# the environment, or in a private file outside any repository (default ~/.config/ai-workstation/private.env,
+# override with AIW_PRIVATE_ENV), for example:
+#     LOCAL_LLM_SSH_HOST=my-gpu-host
+# Other settings (all optional):
+#   LOCAL_LLM_PORT (8080, the server's port on the GPU machine)   LOCAL_LLM_TUNNEL_PORT (18080, local end of the tunnel)
+#   LOCAL_LLM_CTX (98304; must equal the server's --ctx)  LOCAL_LLM_MAX_OUTPUT (16000)  LOCAL_LLM_MODEL (local-qwen)
+#   LOCAL_LLM_KEY_FILE (local mode)   LOCAL_LLM_REMOTE_KEY_FILE (remote mode; path on the GPU machine)
+#
+# Privacy: the API key is read into a shell variable and handed to claude through its environment only (never on a
+# command line, in a file or in a log). The tunnel is bound to 127.0.0.1 on your machine. If something already listens
+# on the tunnel port, the key is NOT sent to it unless you pass --reuse-tunnel (you vouch it is your own tunnel).
+#
+# Written to run on macOS's old bash 3.2 too. The Mac side has not been tested by the author of this script; it was
+# tested with a stand-in ssh and server on Linux.
 set -euo pipefail
+
 PORT=${LOCAL_LLM_PORT:-8080}
+TUNNEL_PORT=${LOCAL_LLM_TUNNEL_PORT:-18080}
 CTX=${LOCAL_LLM_CTX:-98304}
 MAXOUT=${LOCAL_LLM_MAX_OUTPUT:-16000}
 MODEL=${LOCAL_LLM_MODEL:-local-qwen}
 KEY_FILE=${LOCAL_LLM_KEY_FILE:-$HOME/.local/state/ai-workstation/local-llm/api-key}
-BASE="http://127.0.0.1:$PORT"
+REMOTE_KEY_FILE=${LOCAL_LLM_REMOTE_KEY_FILE:-'~/.local/state/ai-workstation/local-llm/api-key'}   # expanded by the remote shell
 
-DRY=0; CLAUDE_ARGS=()
+AIW_PRIVATE_ENV=${AIW_PRIVATE_ENV:-$HOME/.config/ai-workstation/private.env}
+# shellcheck disable=SC1090
+[[ -f $AIW_PRIVATE_ENV ]] && source "$AIW_PRIVATE_ENV"
+SSH_HOST=${LOCAL_LLM_SSH_HOST:-}
+
+DRY=0; REUSE=0; CLAUDE_ARGS=()
 while (($#)); do
   case "$1" in
     --dry-run) DRY=1 ;;
-    --) shift; CLAUDE_ARGS=("$@"); break ;;
-    *) echo "unknown option: $1 (pass Claude Code arguments after --)" >&2; exit 2 ;;
+    --reuse-tunnel) REUSE=1 ;;
+    --) shift; CLAUDE_ARGS+=("$@"); break ;;
+    *) CLAUDE_ARGS+=("$1") ;;
   esac
   shift
 done
-((${#CLAUDE_ARGS[@]})) && for a in "${CLAUDE_ARGS[@]}"; do
-  case "$a" in --permission-mode*) echo "note: the permission mode is forced back to 'default' while CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (measured earlier)." >&2 ;; esac
-done
+if ((${#CLAUDE_ARGS[@]})); then
+  for a in "${CLAUDE_ARGS[@]}"; do
+    case "$a" in --permission-mode*) echo "note: the permission mode is forced back to 'default' while CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (measured earlier)." >&2 ;; esac
+  done
+fi
 
 command -v claude >/dev/null || { echo "claude is not on PATH" >&2; exit 1; }
-[[ -s $KEY_FILE ]] || { echo "no API key at $KEY_FILE; run ./local-llm.sh start first" >&2; exit 1; }
-[[ -z $(ss -ltn "sport = :$PORT" 2>/dev/null | tail -n +2) ]] && { echo "nothing is listening on 127.0.0.1:$PORT; run ./local-llm.sh start" >&2; exit 1; }
-[[ $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/health" || true) == 200 ]] || { echo "server on $BASE is not healthy" >&2; exit 1; }
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required (it builds the settings JSON)" >&2; exit 1; }
+
+TUNNEL_PID=""
+cleanup() { if [[ -n $TUNNEL_PID ]]; then kill "$TUNNEL_PID" 2>/dev/null || true; wait "$TUNNEL_PID" 2>/dev/null || true; TUNNEL_PID=""; fi; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/dev/null || true; }
+port_in_use() { local rc=0; curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null || rc=$?; ((rc != 7)); }   # curl exit 7 = connection refused
+
+TOKEN=""
+if [[ -s $KEY_FILE ]]; then
+  # ---- local mode: the server runs on this machine
+  MODE=local; BASE="http://127.0.0.1:$PORT"
+  TOKEN=$(cat "$KEY_FILE")
+else
+  # ---- remote mode: tunnel to the GPU machine
+  MODE=remote; BASE="http://127.0.0.1:$TUNNEL_PORT"
+  command -v ssh >/dev/null || { echo "ssh is required for remote mode" >&2; exit 1; }
+  [[ -n $SSH_HOST ]] || { echo "no API key at $KEY_FILE, so this looks like a remote machine, but LOCAL_LLM_SSH_HOST is not set (see the header of this script)" >&2; exit 1; }
+  SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
+  # The key comes over SSH into a variable; it appears in no argument list.
+  TOKEN=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "cat $REMOTE_KEY_FILE" 2>/dev/null) || TOKEN=""
+  [[ -n $TOKEN ]] || { echo "could not read the API key over ssh from '$SSH_HOST' (is ssh key login working, and is local-llm.sh start done on that machine?)" >&2; exit 1; }
+  if port_in_use "$TUNNEL_PORT"; then
+    if ((REUSE)); then echo "reusing whatever listens on 127.0.0.1:$TUNNEL_PORT (--reuse-tunnel)" >&2
+    else echo "127.0.0.1:$TUNNEL_PORT is already in use. Not sending the API key to an unknown listener. Pick another port (LOCAL_LLM_TUNNEL_PORT), or pass --reuse-tunnel if it is your own tunnel." >&2; exit 1; fi
+  else
+    ssh "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -N -L "127.0.0.1:$TUNNEL_PORT:127.0.0.1:$PORT" "$SSH_HOST" &
+    TUNNEL_PID=$!
+    for _ in $(seq 1 20); do
+      kill -0 "$TUNNEL_PID" 2>/dev/null || { echo "the ssh tunnel exited; check 'ssh $SSH_HOST' works from this machine" >&2; TUNNEL_PID=""; exit 1; }
+      [[ $(health "$BASE") == 200 ]] && break
+      sleep 1
+    done
+  fi
+fi
+
+[[ $(health "$BASE") == 200 ]] || { echo "server at $BASE is not healthy; on the GPU machine run ./local-llm.sh start (and status)" >&2; exit 1; }
 
 # Non-secret settings also go through --settings, because a settings file's `env` block (yours or the project's)
 # overrides the shell environment; this keeps a project file from redirecting the requests. The token cannot go
@@ -62,15 +129,19 @@ PY
 )
 
 if ((DRY)); then
+  echo "mode: $MODE   endpoint: $BASE"
   echo "would run: claude --permission-mode default --settings '<json below>' ${CLAUDE_ARGS[*]:-}"
-  echo "token: from $KEY_FILE (environment only, not shown)"
+  echo "token: obtained ($MODE), kept in the environment only, not shown"
   python3 -I -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), indent=2))' "$SETTINGS"
   exit 0
 fi
 
 # The compaction window variable has a floor (100000) above our context, so only the percentage is used.
-# ANTHROPIC_API_KEY is removed so two credentials do not compete.
-TOKEN=$(cat "$KEY_FILE")
-exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_AUTO_COMPACT_WINDOW \
-  ANTHROPIC_AUTH_TOKEN="$TOKEN" \
-  claude --permission-mode default --settings "$SETTINGS" "${CLAUDE_ARGS[@]}"
+# ANTHROPIC_API_KEY is removed so two credentials do not compete. The token is exported (not given as `env VAR=...`)
+# so it is never part of a command line.
+unset ANTHROPIC_API_KEY CLAUDE_CODE_AUTO_COMPACT_WINDOW
+export ANTHROPIC_AUTH_TOKEN="$TOKEN"
+unset TOKEN
+rc=0
+claude --permission-mode default --settings "$SETTINGS" ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} || rc=$?
+exit "$rc"

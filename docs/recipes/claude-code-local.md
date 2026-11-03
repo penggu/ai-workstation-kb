@@ -22,6 +22,25 @@ cd <your project>
 
 `local-llm.sh start` refuses to run if a benchmark or anything else already holds the GPU, and `claude-local.sh` refuses to start if the server is not healthy.
 
+### From another machine (for example a Mac)
+
+The server listens only on the GPU machine's `127.0.0.1`. `claude-local.sh` detects that there is no local key file and switches to remote mode: it reads the API key over SSH, opens a tunnel (`ssh -N -L`, bound to `127.0.0.1` on your machine, local port 18080), runs the session, and closes the tunnel when the session ends.
+
+```bash
+# once, on the other machine: tell the script which SSH host to use. The name is NOT stored in this repository.
+mkdir -p ~/.config/ai-workstation
+echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.env
+# then, in the project you want to work on:
+<path>/claude-local.sh
+```
+
+- The server must already be running (`./local-llm.sh start` on the GPU machine; starting it needs sudo, so it cannot be done remotely by this script).
+- Needs `ssh` key login (it runs with `BatchMode`, so it never stops at a prompt), `curl`, `python3` and `claude` on the other machine. It is written to run on macOS's bash 3.2.
+- If something already listens on the tunnel port, the script refuses to send the key to it. `--reuse-tunnel` overrides that when the listener is your own tunnel.
+- The server has one slot: two sessions at the same time queue behind each other.
+- Arguments the script does not know go to `claude`: `./claude-local.sh --resume`.
+- Tested on Linux with a stand-in `ssh`, server and `claude`: both modes, the tunnel closing after the session, the exit code passing through, the key absent from every command line. **Not yet run on a real Mac.**
+
 ### Defaults and why
 
 | Setting | Value | Reason |
