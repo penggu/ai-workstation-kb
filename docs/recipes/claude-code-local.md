@@ -135,9 +135,9 @@ Tavily key (optional; free tier): put it, alone on one line, in `~/.config/ai-wo
 
 Tests: `python3 scripts/mcp/test_web_search_mcp.py` (16 tests, no network, no key: Tavily is a local fake, `ddgs` a stub): protocol, key only in the header and never in output or stderr, fallback and its wording, "found nothing" being an answer, output cap, argument clamping, control characters. `AIW_NET=1 uv run --no-project --with ddgs==9.16.0 python scripts/mcp/test_web_search_mcp.py Canary` runs against the real library and the real DuckDuckGo: it passed on 2026-11-03, and a real search returned links.
 
-Confirmed on a Mac (2026-11-03), with DuckDuckGo only (no Tavily key): the server connects (`/mcp` shows `websearch` connected) and a search in a session on the local model works. The first attempt failed with `websearch (CONNECTION_CLOSED)` because of the Python version, see problem 6.
+Confirmed on a Mac (2026-11-03): the server connects (`/mcp` shows `websearch` connected) and a search in a session on the local model works, first with DuckDuckGo only and then with a Tavily key, which also works. The owner's judgement is that the quality of the search results is good (an observation, not a measurement). The first attempt failed with `websearch (CONNECTION_CLOSED)` because of the Python version, see problem 6.
 
-Not verified: a real Tavily call (needs a key); the same on WSL; and how reliably a 3-bit 27B model chooses the tool, writes good queries and uses the returned URLs instead of guessing. "Works" here means the tool is called and returns results; the quality of the answers was not measured.
+Not verified: the same on WSL; a measured comparison of Tavily and DuckDuckGo results; and how reliably a 3-bit 27B model chooses the tool, writes good queries and uses the returned URLs instead of guessing. "Works" here means the tool is called and returns results; the quality of the answers was not measured.
 
 ### 5. The server started without an API key (found in its log)
 
