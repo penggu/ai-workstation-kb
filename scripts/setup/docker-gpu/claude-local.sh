@@ -59,6 +59,14 @@ if ((${#CLAUDE_ARGS[@]})); then
   done
 fi
 
+# WebSearch is an Anthropic server-side tool: against this local server it always reports "Did 0 searches" and the model
+# then guesses URLs. It is disabled unless you pass your own --disallowedTools (then yours is used as given).
+HAVE_DISALLOW=0
+if ((${#CLAUDE_ARGS[@]})); then
+  for a in "${CLAUDE_ARGS[@]}"; do case "$a" in --disallowedTools*|--disallowed-tools*) HAVE_DISALLOW=1 ;; esac; done
+fi
+((HAVE_DISALLOW)) || CLAUDE_ARGS+=(--disallowedTools WebSearch)
+
 command -v claude >/dev/null || { echo "claude is not on PATH" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required (it builds the settings JSON)" >&2; exit 1; }

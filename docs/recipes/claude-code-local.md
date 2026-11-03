@@ -52,6 +52,7 @@ echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.en
 | GPU layers | all (`-ngl 99 -fit off`) | fails loudly if it does not fit, instead of silently spilling to the CPU |
 | Reasoning | on (the model's default) | `--reasoning off` is available; the difference in a coding session is not measured |
 | Binding | `127.0.0.1:8080`, API key required | the key is generated once, stored mode 600, and kept out of logs and command lines |
+| Server log | `~/.local/state/ai-workstation/local-llm/server-logs/server-<time>.log` | one file per start, kept after stop or a crash (the container itself is removed on stop, with its logs). Added after a problem could not be investigated because the log was gone; not yet confirmed on a real start |
 
 **GPU headroom is small:** with these settings the card showed 15,499 of 16,303 MiB used, about 800 MiB free. If the Windows desktop takes more GPU memory (video, many windows) the server can fail with a CUDA out-of-memory error. Restart with `--ctx 65536`.
 
@@ -85,9 +86,19 @@ Cause: the Qwen3.8 chat template accepts system messages only at the start of th
 
 I reproduced the exception with a plain Jinja render of the template on `[system, user, assistant, system, user]`.
 
-Fix: `gguf_template.py` reads the model file's own template from the GGUF metadata and changes one line, so a late system message is rendered as a system turn. It refuses to write anything unless that line occurs exactly once. `local-llm.sh` mounts the result into the container and passes `--chat-template-file`; `--no-template-fix` turns this off.
+Fix: `gguf_template.py` reads the model file's own template from the GGUF metadata and changes the line that raises, so a late system message is rendered as a system turn. It refuses to write anything unless each line to patch occurs exactly once. `local-llm.sh` mounts the result into the container and passes `--chat-template-file`; `--no-template-fix` turns this off.
 
 Not known: which component sends the late system message (Claude Code or the server's conversion of Anthropic requests). The patch stops the failure; whether the model uses such a message well was not tested, because the model was not trained on system turns in mid-conversation.
+
+### 1b. HTTP 500 "Unexpected item type in content"
+
+Symptom (seen on the Mac session, through the tunnel): `API Error: 500 ... raise_exception('Unexpected item type in content.')`.
+
+Cause: the same template accepts only `text`, `image` and `video` items inside a message's content and raises on any other block type. Which block type Claude Code sent is not known: the error does not say, and the request body was not captured.
+
+Fix: a second patch in `gguf_template.py`. A `thinking` or `redacted_thinking` block is dropped silently; any other unknown block is replaced by the visible text `[content of type X omitted]` instead of an error. So if the model ever mentions such a marker, the name in it is the block type that was being sent, which is the clue to look for. The patch was tested with a plain Jinja render (the original raises, the patched one renders), and then on the real server: it started with the patched template and a multi-turn Mac session ran without the 500. No `[content of type ... omitted]` marker has appeared so far, so the block that triggered the error was probably a `thinking` block, which is dropped silently; that is a guess.
+
+Trade-off: silently dropping or replacing a block means the model does not see it. For thinking blocks this is harmless. For other types (for example a document) it can hide content, which is why the marker is not silent.
 
 ### 2. Sandbox: "missing socat"
 
@@ -96,6 +107,14 @@ Symptom: the local session reports that sandbox initialisation failed because `s
 Cause: Claude Code's Bash sandbox on Linux and WSL2 needs `bubblewrap` (already installed) and `socat` (was not). It was not enabled in `~/.claude/settings.json`; where it was switched on is not established.
 
 Fix: `sudo apt install -y socat`, then restart the local session (the server stays up). After that Bash works.
+
+### 2b. WebSearch: "Did 0 searches"
+
+Symptom: a question that needs current information makes the session call `Web Search(...)`, which reports `Did 0 searches`; the model then guesses URLs for `Fetch` and gets 404s, or keeps retrying (one earlier session ended with `response exceeded the 16000 output token maximum`; that case was not captured, so its cause is not established).
+
+Cause: `WebSearch` is executed by Anthropic's servers, not by Claude Code on your machine. A local server does not run it. `WebFetch` runs locally and works, but the model has no way to know a correct URL.
+
+Fix: `claude-local.sh` passes `--disallowedTools WebSearch` unless you give your own `--disallowedTools`. Questions that need the web ("latest news") are not a job for this setup: use the cloud model. Local sessions suit work that depends only on the project's files.
 
 ### 3. Notices that need no action
 

@@ -17,7 +17,8 @@
 # q8_0 KV cache fits about 101K tokens in 16 GB (1 GiB margin), so 98304 leaves a little headroom. All layers go
 # on the GPU (-ngl 99, -fit off): if it does not fit, it fails loudly instead of silently spilling to the CPU.
 #
-# State: ~/.local/state/ai-workstation/local-llm/   (log, xtrace, last-error.txt, api-key (mode 600))
+# State: ~/.local/state/ai-workstation/local-llm/   (log, xtrace, last-error.txt, api-key (mode 600),
+#        server-logs/server-<time>.log: the server's own log, one file per start, kept after stop or a crash)
 # undo: stops the server and deletes only the files this script generated (api-key, chat-template-patched.jinja).
 set -Eeuo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +29,7 @@ source "$HERE/lib.sh"
 MODEL_DIR=${LLAMA_MODEL_DIR:-$HOME/models/gguf/qwen3.8-27b}
 IMAGE_STATE=${LLAMA_IMAGE_STATE:-$HOME/.local/state/ai-workstation/llama-image/image-digest.txt}
 KEY_FILE="$STATE_DIR/api-key"
+SERVER_LOG_DIR="$STATE_DIR/server-logs"                  # one file per start; survives stop/crash (the container is --rm)
 TEMPLATE_FILE="$STATE_DIR/chat-template-patched.jinja"   # generated from the model file by gguf_template.py
 CONTAINER=aiw-local-llm
 ALIAS=local-qwen                      # the model name clients use (claude-local.sh sets the same)
@@ -90,18 +92,21 @@ start_server() {
   { set +x; } 2>/dev/null
   local KEY; KEY=$(cat "$KEY_FILE")
   set -x
+  mkdir -p "$SERVER_LOG_DIR"
+  local srv_log; srv_log="server-$(date +%Y%m%d-%H%M%S).log"
+  info "server log (kept after stop): $SERVER_LOG_DIR/$srv_log"
   local tpl_args=() tpl_mount=()
   if ((TEMPLATE_FIX)); then
     python3 -I "$HERE/gguf_template.py" "$MODEL_DIR/$MODEL_FILE" "$TEMPLATE_FILE" || die "could not build the patched chat template (use --no-template-fix to skip)"
     tpl_args=(--chat-template-file /chat-template.jinja); tpl_mount=(-v "$TEMPLATE_FILE":/chat-template.jinja:ro)
   fi
   local args=(-m "/models/$MODEL_FILE" --alias "$ALIAS" -c "$CTX" -np 1 -fa on -ctk "$KV" -ctv "$KV" -t "$THREADS"
-              -ngl 99 -fit off --jinja --reasoning "$REASONING" "${tpl_args[@]}" --no-webui --host 0.0.0.0 --port 8080)
+              -ngl 99 -fit off --jinja --reasoning "$REASONING" "${tpl_args[@]}" --log-file "/logs/$srv_log" --log-timestamps --no-webui --host 0.0.0.0 --port 8080)
   info "llama-server ${args[*]}"
   # -e LLAMA_API_KEY with no value: docker takes it from this shell's environment, so it is not on any command line
   { set +x; } 2>/dev/null
   LLAMA_API_KEY="$KEY" d run -d --rm --name "$CONTAINER" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp -e LLAMA_API_KEY \
-      -v "$MODEL_DIR":/models:ro "${tpl_mount[@]}" -p "127.0.0.1:$PORT:8080" --entrypoint /app/llama-server "$ref" "${args[@]}" >/dev/null
+      -v "$MODEL_DIR":/models:ro -v "$SERVER_LOG_DIR":/logs "${tpl_mount[@]}" -p "127.0.0.1:$PORT:8080" --entrypoint /app/llama-server "$ref" "${args[@]}" >/dev/null
   set -x
   local t0=$SECONDS code
   while :; do
