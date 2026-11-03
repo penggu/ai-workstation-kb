@@ -114,7 +114,28 @@ Symptom: a question that needs current information makes the session call `Web S
 
 Cause: `WebSearch` is executed by Anthropic's servers, not by Claude Code on your machine. A local server does not run it. `WebFetch` runs locally and works, but the model has no way to know a correct URL.
 
-Fix: `claude-local.sh` passes `--disallowedTools WebSearch` unless you give your own `--disallowedTools`. Questions that need the web ("latest news") are not a job for this setup: use the cloud model. Local sessions suit work that depends only on the project's files.
+Fix: `claude-local.sh` passes `--disallowedTools WebSearch` unless you give your own `--disallowedTools`, and adds our own search tool instead (next section).
+
+### 2c. Web search that works with a local model: `scripts/mcp/web_search_mcp.py`
+
+An MCP server runs on the machine where `claude` runs, so it works with any model that can call tools. This one has a single tool, `web_search`, written with the standard library only (plus the optional `ddgs` package), so it is short enough to read in full.
+
+| | |
+|---|---|
+| Providers | Tavily if a key exists (returns extracted page text, so one call can answer a question), otherwise or on failure DuckDuckGo through `ddgs` (links and snippets only; the model must then fetch a page) |
+| The answer says | which provider answered, whether it has page text, and, after a fallback, that Tavily failed and why (never the remote error body) |
+| What leaves the machine | the model-written search query, to Tavily or DuckDuckGo. Nothing else: the server fetches no other URL, reads no file except the key file, runs no command |
+| `ddgs` backend | fixed to `duckduckgo`. Its default, `auto`, sends each query to a shuffled set of search companies |
+| Output limit | about 7,000 characters per answer (roughly 1.8K tokens) to protect the 98K context |
+| Untrusted text | every answer starts with a line saying the results are web text, not instructions. That is a hint to the model, not a guarantee: keep permission prompts on, and note that each search call asks you first |
+
+Tavily key (optional; free tier): put it, alone on one line, in `~/.config/ai-workstation/tavily.key` with mode 600 **on the machine that runs `claude`** (the Mac, if you use the remote mode), or export `TAVILY_API_KEY`. The key is sent only in an `Authorization` header to the Tavily endpoint. It is not in any repository file or in the MCP config that `claude-local.sh` builds.
+
+`claude-local.sh` passes the server with `--mcp-config ... --strict-mcp-config`, so it exists only in that session and your normal `claude` is untouched (`--strict-mcp-config` also means no other MCP servers load in that session). It starts the server with `uv run --no-project --with ddgs==9.16.0` when `uv` exists, otherwise with `python3` (Tavily only). `LOCAL_LLM_NO_SEARCH=1` turns it off; your own `--mcp-config` wins.
+
+Tests: `python3 scripts/mcp/test_web_search_mcp.py` (16 tests, no network, no key: Tavily is a local fake, `ddgs` a stub): protocol, key only in the header and never in output or stderr, fallback and its wording, "found nothing" being an answer, output cap, argument clamping, control characters. `AIW_NET=1 uv run --no-project --with ddgs==9.16.0 python scripts/mcp/test_web_search_mcp.py Canary` runs against the real library and the real DuckDuckGo: it passed on 2026-11-03, and a real search returned links.
+
+Not verified: a real Tavily call (needs a key), and a Claude Code session on the local model actually calling the tool. How reliably a 3-bit 27B model chooses the tool and writes good queries is unknown.
 
 ### 3. Notices that need no action
 
