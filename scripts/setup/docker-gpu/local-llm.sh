@@ -103,10 +103,15 @@ start_server() {
   local args=(-m "/models/$MODEL_FILE" --alias "$ALIAS" -c "$CTX" -np 1 -fa on -ctk "$KV" -ctv "$KV" -t "$THREADS"
               -ngl 99 -fit off --jinja --reasoning "$REASONING" "${tpl_args[@]}" --log-file "/logs/$srv_log" --log-timestamps --no-webui --host 0.0.0.0 --port 8080)
   info "llama-server ${args[*]}"
-  # -e LLAMA_API_KEY with no value: docker takes it from this shell's environment, so it is not on any command line
+  # The key goes in through --env-file (a mode-600 file in this run's private temp dir, deleted right after docker reads
+  # it): not on any command line, not in the trace. NOT through the environment: `sudo` resets it, so an exported
+  # LLAMA_API_KEY never reaches docker and the server started WITHOUT a key (found in its log, 2026-11-03).
+  local envf="$TMPD/llama.env"
   { set +x; } 2>/dev/null
-  LLAMA_API_KEY="$KEY" d run -d --rm --name "$CONTAINER" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp -e LLAMA_API_KEY \
+  ( umask 077; printf 'LLAMA_API_KEY=%s\n' "$KEY" >"$envf" )
+  d run -d --rm --name "$CONTAINER" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp --env-file "$envf" \
       -v "$MODEL_DIR":/models:ro -v "$SERVER_LOG_DIR":/logs "${tpl_mount[@]}" -p "127.0.0.1:$PORT:8080" --entrypoint /app/llama-server "$ref" "${args[@]}" >/dev/null
+  rm -f -- "$envf"
   set -x
   local t0=$SECONDS code
   while :; do
@@ -139,6 +144,13 @@ api_test() {
         -d "{\"model\":\"$ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}" "$url/v1/messages/count_tokens" || true)
   set -x
   info "POST /v1/messages/count_tokens -> $(printf '%s' "$out" | cut -c1-200)"
+  # The key must be ENFORCED: a request with no key and one with a wrong key must both be refused.
+  local code_nokey code_wrong
+  code_nokey=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H 'content-type: application/json' -d '{}' "$url/v1/messages" || true)
+  code_wrong=$(printf 'header = "Authorization: Bearer not-the-key"\n' | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -K - -H 'content-type: application/json' -d '{}' "$url/v1/messages" || true)
+  info "without a key -> HTTP $code_nokey; with a wrong key -> HTTP $code_wrong (both must be refused: 401/403)"
+  [[ $code_nokey =~ ^40[13]$ && $code_wrong =~ ^40[13]$ ]] && ok "the API key is enforced" \
+    || die "the API key is NOT enforced (no key -> HTTP $code_nokey, wrong key -> HTTP $code_wrong): stop the server (./local-llm.sh stop)"
 }
 
 show_status() {

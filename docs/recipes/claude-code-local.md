@@ -51,7 +51,7 @@ echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.en
 | Context | 98304, one slot | leaves a little headroom under the 101K limit |
 | GPU layers | all (`-ngl 99 -fit off`) | fails loudly if it does not fit, instead of silently spilling to the CPU |
 | Reasoning | on (the model's default) | `--reasoning off` is available; the difference in a coding session is not measured |
-| Binding | `127.0.0.1:8080`, API key required | the key is generated once, stored mode 600, and kept out of logs and command lines |
+| Binding | `127.0.0.1:8080`, API key required | the key is generated once, stored mode 600, and kept out of logs and command lines. `start` now checks that a request with no key and one with a wrong key are both refused (see problem 5) |
 | Server log | `~/.local/state/ai-workstation/local-llm/server-logs/server-<time>.log` | one file per start, kept after stop or a crash (the container itself is removed on stop, with its logs). Added after a problem could not be investigated because the log was gone; not yet confirmed on a real start |
 
 **GPU headroom is small:** with these settings the card showed 15,499 of 16,303 MiB used, about 800 MiB free. If the Windows desktop takes more GPU memory (video, many windows) the server can fail with a CUDA out-of-memory error. Restart with `--ctx 65536`.
@@ -136,6 +136,16 @@ Tavily key (optional; free tier): put it, alone on one line, in `~/.config/ai-wo
 Tests: `python3 scripts/mcp/test_web_search_mcp.py` (16 tests, no network, no key: Tavily is a local fake, `ddgs` a stub): protocol, key only in the header and never in output or stderr, fallback and its wording, "found nothing" being an answer, output cap, argument clamping, control characters. `AIW_NET=1 uv run --no-project --with ddgs==9.16.0 python scripts/mcp/test_web_search_mcp.py Canary` runs against the real library and the real DuckDuckGo: it passed on 2026-11-03, and a real search returned links.
 
 Not verified: a real Tavily call (needs a key), and a Claude Code session on the local model actually calling the tool. How reliably a 3-bit 27B model chooses the tool and writes good queries is unknown.
+
+### 5. The server started without an API key (found in its log)
+
+Symptom: the server log's startup shows `security: no API key is set and CORS allows all origins`, although the scripts claimed a key was required.
+
+Cause: the key was handed to `docker run` through an exported environment variable (`-e LLAMA_API_KEY` with no value). `sudo` resets the environment, so the variable never reached `docker` and the container got no key. Every test passed anyway, because a request that carries a key is also accepted by a server that checks none. The server was bound to `127.0.0.1` only, so nothing outside the machine could reach it, but a web page open in a browser on the same machine could have (the CORS warning), and the documentation was wrong.
+
+Fix: `local-llm.sh` now passes the key with `--env-file` (a mode-600 file in the run's private temp directory, deleted as soon as docker has started; so not on a command line and not in the trace), and `start` fails if a request without a key, or with a wrong key, is not refused with 401/403. Lesson: a security property needs a test that tries to break it, not one that uses it correctly.
+
+Confirmed from the logs of two earlier starts; the fix is verified by the next `start` (to be recorded here).
 
 ### 3. Notices that need no action
 
