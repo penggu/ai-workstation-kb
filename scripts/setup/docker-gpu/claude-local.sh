@@ -84,7 +84,7 @@ fi
 SEARCH_STATE="off"
 if [[ ${LOCAL_LLM_NO_SEARCH:-0} != 1 ]] && ((!HAVE_MCP)); then
   if [[ -f $SEARCH_MCP ]]; then
-    if command -v uv >/dev/null; then SEARCH_CMD=(uv run --quiet --no-project --with "$DDGS_PIN" python "$SEARCH_MCP")
+    if command -v uv >/dev/null; then SEARCH_CMD=(uv run --quiet --no-project --python ">=3.10" --with "$DDGS_PIN" python "$SEARCH_MCP")
     else SEARCH_CMD=(python3 "$SEARCH_MCP"); fi
     MCP_JSON=$(python3 -I -c 'import json,sys; print(json.dumps({"mcpServers":{"websearch":{"type":"stdio","command":sys.argv[1],"args":sys.argv[2:]}}}))' "${SEARCH_CMD[@]}")
     CLAUDE_ARGS+=(--mcp-config "$MCP_JSON" --strict-mcp-config)
