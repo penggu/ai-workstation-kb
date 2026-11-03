@@ -1,0 +1,24 @@
+# generated
+__pycache__/
+*.pyc
+
+# models and large artefacts: never commit
+*.gguf
+*.safetensors
+*.bin
+*.ggml
+
+# logs, traces, per-run state and scratch files
+*.log
+*.trace
+last-error.txt
+*.tmp
+tmp/
+
+# private settings and secrets: these belong outside the repository
+.env
+*.env
+*.pem
+*.key
+id_rsa*
+id_ed25519*

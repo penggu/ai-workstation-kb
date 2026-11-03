@@ -1,0 +1,9 @@
+VRAM: 16303 MiB total, 1441 MiB used by the desktop -> 14862 MiB free; budget with a 1024 MiB margin = 13838 MiB
+
+weights-on-GPU line from 4 baseline quants: dev = 0.9446 * file + -129
+
+quant        file MiB |      weights MiB      |  max ctx f16 (margin / none)   |  max ctx q8_0 (margin / none) 
+                      | predicted    measured |     predicted       measured |     predicted       measured
+UD-IQ3_S        11483 |     10718           - | 38,528 / 54,656   not measured | 71,424 / 101,120   not measured   [size from disk]
+UD-IQ4_XS       13593 |     12711           - | 7,104 / 23,232   not measured | 13,120 / 43,072   not measured   [size from hf-api]
+UD-Q4_K_M       15702 |     14703           - |         0 / 0   not measured |         0 / 0   not measured   [size from hf-api]

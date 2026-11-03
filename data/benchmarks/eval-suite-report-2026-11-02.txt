@@ -1,0 +1,132 @@
+Evaluation suite report - 2026-11-02T20:23:24-08:00
+image: ghcr.io/ggml-org/llama.cpp@sha256:0ae61194d97f4fddf23ebffb0e23de97520cd169554d1a388bc607903a0e1659
+
+################ step 1: fit-memory - GPU memory per quant and context length (metadata only)
+VRAM: 16303 MiB total, 1441 MiB used by the desktop -> 14862 MiB free; budget with a 1024 MiB margin = 13838 MiB
+
+LEAVE-ONE-OUT: predict each baseline quant from the other baseline quants
+quant         file MiB  predicted  measured  error MiB
+UD-IQ3_XXS       10428       9761      9685        +76
+UD-Q3_K_XL       12537      11740     11671        +69
+UD-Q5_K_M        18856      17630     17828       -198
+Q8_0             27701      26384     25972       +412
+
+weights: mean |error| 189 MiB, worst 412 MiB
+
+Max context that fits (tokens), predicted without using that quant's own measurement
+quant        KV    budget        predicted  measured    error
+UD-IQ3_XXS   f16   with margin      53,568    54,807   -1,239
+UD-IQ3_XXS   f16   no margin        69,696    70,939   -1,243
+UD-IQ3_XXS   q8_0  with margin      99,328   101,426   -2,098
+UD-IQ3_XXS   q8_0  no margin       127,104   129,225   -2,121
+UD-Q3_K_XL   f16   with margin      22,400    23,520   -1,120
+UD-Q3_K_XL   f16   no margin        38,528    39,652   -1,124
+UD-Q3_K_XL   q8_0  with margin      41,472    43,563   -2,091
+UD-Q3_K_XL   q8_0  no margin        71,488    73,523   -2,035
+UD-Q5_K_M    f16   with margin           0         0       +0
+UD-Q5_K_M    f16   no margin             0         0       +0
+UD-Q5_K_M    q8_0  with margin           0         0       +0
+UD-Q5_K_M    q8_0  no margin             0         0       +0
+Q8_0         f16   with margin           0         0       +0
+Q8_0         f16   no margin             0         0       +0
+Q8_0         q8_0  with margin           0         0       +0
+Q8_0         q8_0  no margin             0         0       +0
+
+VRAM: 16303 MiB total, 1441 MiB used by the desktop -> 14862 MiB free; budget with a 1024 MiB margin = 13838 MiB
+
+weights-on-GPU line from 4 baseline quants: dev = 0.9446 * file + -129
+
+quant        file MiB |      weights MiB      |  max ctx f16 (margin / none)   |  max ctx q8_0 (margin / none) 
+                      | predicted    measured |     predicted       measured |     predicted       measured
+UD-IQ3_S        11483 |     10718       10616 | 38,528 / 54,656 39,825 / 55,957 | 71,424 / 101,120 73,845 / 103,407   [size from disk]
+UD-IQ4_XS       13593 |     12711       12726 | 7,104 / 23,232 6,585 / 22,717 | 13,120 / 43,072 12,112 / 42,071   [size from disk]
+UD-Q4_K_M       15702 |     14703       14674 |         0 / 0          0 / 0 |         0 / 0          0 / 0   [size from disk]
+
+Does a 50,000-token context fit with the 1 GiB margin?   predicted vs measured
+  UD-IQ3_S   f16   predicted no  measured no  (agree)
+  UD-IQ3_S   q8_0  predicted yes measured yes (agree)
+  UD-IQ4_XS  f16   predicted no  measured no  (agree)
+  UD-IQ4_XS  q8_0  predicted no  measured no  (agree)
+  UD-Q4_K_M  f16   predicted no  measured no  (agree)
+  UD-Q4_K_M  q8_0  predicted no  measured no  (agree)
+
+################ step 2: eval-kl - KL distance of every quant from Q8_0 on your code
+Distance from the reference (Q8_0) on code text: 32 chunks x 2048 tokens; lower KLD / higher same-top-token = closer to the reference
+quant        size GiB    mean KLD      ± se   99% KLD  same top token  RMS dp %      PPL  ref PPL
+UD-Q5_K_M       18.41     0.00901   0.00110    0.0486         97.54 %      2.58    3.144    3.145
+UD-Q4_K_M       15.33     0.01743   0.00161    0.1019         96.37 %      3.60    3.147    3.145
+UD-IQ4_XS       13.27     0.02653   0.00175    0.1758         95.18 %      4.32    3.156    3.145
+UD-Q3_K_XL      12.24     0.03947   0.00193    0.2808         93.90 %      5.50    3.180    3.145
+UD-IQ3_S        11.21     0.05625   0.00249    0.4046         92.62 %      6.61    3.202    3.145
+UD-IQ3_XXS      10.18     0.07688   0.00226    0.6157         90.85 %      7.90    3.290    3.145
+
+################ step 3: bench-fit - speed vs context depth, quants that fit in VRAM
+Generation speed, tg128 (tok/s, mean±sd) by context depth
+quant       KV    size GiB GPU layers |          0         4K         8K        16K        32K        48K        64K
+Q8_0        f16      27.04         32 |    2.0±0.0          -    1.7±0.0          -          -          -          -
+Q8_0        f16      27.04         24 |    1.6±0.0          -          -          -          -          -          -
+Q8_0        f16      27.04         16 |    1.4±0.0          -          -          -          -          -          -
+Q8_0        f16      27.04          8 |    1.2±0.0          -          -          -          -          -          -
+UD-IQ3_S    f16      11.20         99 |   52.2±0.4   51.7±0.2   50.9±0.2   48.6±1.0   45.9±0.3          -          -
+UD-IQ3_S    q8_0     11.20         99 |   51.6±0.5   50.5±1.0   49.7±0.1   45.2±0.9   42.2±1.2   39.4±0.1   36.5±0.0
+UD-IQ3_XXS  f16      10.17         99 |   54.2±0.1   53.6±0.0   52.5±0.7   51.3±0.2   47.9±0.2   44.8±0.3          -
+UD-IQ3_XXS  q8_0     10.17         99 |   53.5±0.7   52.7±1.2   51.8±0.2   49.2±0.2   45.0±0.1   40.9±0.1   37.7±0.1
+UD-IQ4_XS   f16      13.26         99 |   48.0±0.4   47.5±0.1          -          -          -          -          -
+UD-IQ4_XS   q8_0     13.26         99 |   47.7±0.0   46.5±0.9   45.8±0.1          -          -          -          -
+UD-Q3_K_XL  f16      12.23         99 |   49.9±0.1   48.5±1.3   48.6±0.1   47.0±0.1          -          -          -
+UD-Q3_K_XL  q8_0     12.23         99 |   49.6±0.1   48.3±0.9   47.7±0.1   45.4±0.2   41.8±0.1          -          -
+UD-Q4_K_M   f16      15.32         57 |    9.7±0.5          -    8.3±0.0          -          -          -          -
+UD-Q4_K_M   f16      15.32         49 |    6.0±0.0          -          -          -          -          -          -
+UD-Q4_K_M   f16      15.32         41 |    4.2±0.0          -          -          -          -          -          -
+UD-Q4_K_M   f16      15.32         33 |    3.2±0.0          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         46 |    4.6±0.0          -    3.6±0.0          -          -          -          -
+UD-Q5_K_M   f16      18.40         38 |    3.3±0.0          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         30 |    2.6±0.0          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         22 |    2.2±0.0          -          -          -          -          -          -
+
+Prompt processing, pp512 (tok/s, mean±sd) by context depth
+quant       KV    size GiB GPU layers |          0         4K         8K        16K        32K        48K        64K
+Q8_0        f16      27.04         32 | 232.9±20.2          -  230.5±9.1          -          -          -          -
+Q8_0        f16      27.04         24 |  205.8±4.1          -          -          -          -          -          -
+Q8_0        f16      27.04         16 |  172.7±4.0          -          -          -          -          -          -
+Q8_0        f16      27.04          8 |  151.0±1.1          -          -          -          -          -          -
+UD-IQ3_S    f16      11.20         99 | 1965.9±23.6 1882.9±18.7 1813.8±29.4 1642.1±49.7 1223.6±128.2          -          -
+UD-IQ3_S    q8_0     11.20         99 | 1969.6±18.0 1877.3±20.8 1802.4±29.4 1521.9±33.7 1145.8±25.9  978.2±6.4  839.4±4.2
+UD-IQ3_XXS  f16      10.17         99 | 1809.3±153.3 1814.2±42.0 1748.0±14.8 1596.9±58.4 1286.6±58.6 1051.8±40.5          -
+UD-IQ3_XXS  q8_0     10.17         99 | 1945.5±19.4 1853.4±33.6 1783.4±23.8 1622.3±15.9 1168.3±10.4  972.4±5.4  833.0±5.7
+UD-IQ4_XS   f16      13.26         99 | 2101.3±25.8 2000.2±39.2          -          -          -          -          -
+UD-IQ4_XS   q8_0     13.26         99 | 2095.1±38.2 1994.2±33.8 1907.4±27.7          -          -          -          -
+UD-Q3_K_XL  f16      12.23         99 | 1811.2±155.5 1759.1±164.8 1777.2±72.1 1626.5±98.0          -          -          -
+UD-Q3_K_XL  q8_0     12.23         99 | 2028.7±25.6 1930.7±23.3 1853.3±20.2 1677.6±20.0 1186.9±10.8          -          -
+UD-Q4_K_M   f16      15.32         57 | 906.9±51.5          - 875.0±66.5          -          -          -          -
+UD-Q4_K_M   f16      15.32         49 | 667.4±15.7          -          -          -          -          -          -
+UD-Q4_K_M   f16      15.32         41 | 498.9±19.0          -          -          -          -          -          -
+UD-Q4_K_M   f16      15.32         33 |  396.9±6.5          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         46 | 429.3±45.7          - 467.3±17.8          -          -          -          -
+UD-Q5_K_M   f16      18.40         38 | 389.3±11.6          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         30 |  290.2±2.7          -          -          -          -          -          -
+UD-Q5_K_M   f16      18.40         22 |  259.7±7.0          -          -          -          -          -          -
+
+
+################ step 4: eval-short - 8 short coding tasks x 3 seeds (thinking off), all quants
+Short coding tasks (8 tasks x seeds). The earlier baseline for a 3-bit 27B was 21/24 (instruct).
+quant        KV    mode        passed     95% CI  trunc  pass/untrunc  mean tok  wall s  placement
+Q8_0         f16   instruct   23/24     80-99  %      0         23/24       344    1548  
+UD-IQ3_S     f16   instruct   22/24     74-98  %      0         22/24       381     113  
+UD-IQ3_XXS   f16   instruct   22/24     74-98  %      0         22/24       335     106  
+UD-IQ4_XS    f16   instruct   21/24     69-96  %      0         21/24       328     371  
+UD-Q3_K_XL   f16   instruct   22/24     74-98  %      0         22/24       374     120  
+UD-Q4_K_M    f16   instruct   20/24     64-93  %      0         20/24       308     502  
+UD-Q5_K_M    f16   instruct   24/24     86-100 %      0         24/24       339     998  
+
+per task:
+  Q8_0 f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=2/3 wrap_text=3/3 topo_sort=3/3 evaluate=3/3 to_roman=3/3 fix_median=3/3
+  UD-IQ3_S f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=1/3 wrap_text=3/3 topo_sort=3/3 evaluate=3/3 to_roman=3/3 fix_median=3/3
+  UD-IQ3_XXS f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=2/3 wrap_text=3/3 topo_sort=3/3 evaluate=2/3 to_roman=3/3 fix_median=3/3
+  UD-IQ4_XS f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=2/3 wrap_text=3/3 topo_sort=3/3 evaluate=1/3 to_roman=3/3 fix_median=3/3
+  UD-Q3_K_XL f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=3/3 wrap_text=3/3 topo_sort=3/3 evaluate=1/3 to_roman=3/3 fix_median=3/3
+  UD-Q4_K_M f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=2/3 wrap_text=3/3 topo_sort=3/3 evaluate=0/3 to_roman=3/3 fix_median=3/3
+  UD-Q5_K_M f16 instruct: parse_duration=3/3 merge_intervals=3/3 lru_cache=3/3 wrap_text=3/3 topo_sort=3/3 evaluate=3/3 to_roman=3/3 fix_median=3/3
+
+################ step 5: bench-spill - speed vs layers on the GPU, quants that spill (f16 KV, 6 threads)
+(printed together with step 3: both use bench-ladder's single results table)
