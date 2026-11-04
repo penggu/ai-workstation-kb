@@ -1,0 +1,104 @@
+#!/bin/bash
+# aiw-llm-ctl - start/stop the local llama-server container for ONE user, without giving that user docker.
+#
+# Generated from aiw-llm-ctl.template by sudo-local-llm.sh and installed as root:root, mode 0755, in /usr/local/sbin.
+# The user may run it through sudo (a sudoers rule allows exactly this file). It is NOT editable by the user, so
+# everything the user does not control is written here, and everything the user does control is validated.
+#
+# Everything on the command line is untrusted. What is fixed (baked in at install time, never taken from the caller):
+# the docker binary, the container name, the image (by digest), the user, the mounts, --user, --gpus, --entrypoint,
+# the host address (127.0.0.1) and the container-side port. What the caller may choose, each checked against a strict
+# pattern: model file name (must exist in the model folder), context size, KV type, reasoning mode, threads, host port,
+# log file name, and whether to use the patched chat template.
+#
+# The container runs as the user (--user uid:gid), not as root, with no extra privileges: all capabilities dropped,
+# no-new-privileges (a setuid binary in the image gains nothing), read-only root file system, /tmp is a small tmpfs. The API key is read AS THE
+# USER (so a symlink cannot make root read another file) and handed to docker through the environment, never on a
+# command line.
+set -Eeuo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+# sudo's env_reset (forced by the sudoers rule) must already have cleaned the environment: bash reads BASH_ENV before this
+# script runs, so unsetting it here would be too late. If any of these is set, the reset did not happen: refuse.
+for _v in BASH_ENV ENV LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT "${!DOCKER_@}"; do
+  [[ -z ${!_v:-} ]] || { echo "aiw-llm-ctl: the environment was not reset by sudo ($_v is set); refusing" >&2; exit 2; }
+done
+unset BASH_ENV ENV CDPATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT IFS "${!DOCKER_@}"
+export HOME=/root DOCKER_CONFIG=/root/.docker   # root's docker settings, never the caller's ~/.docker (contexts, credential helpers)
+
+DOCKER=/usr/bin/docker
+CONTAINER='@@CONTAINER@@'
+ALIAS='@@ALIAS@@'
+IMAGE_REF='@@IMAGE_REF@@'
+RUN_USER='@@RUN_USER@@'
+RUN_UID='@@RUN_UID@@'
+RUN_GID='@@RUN_GID@@'
+MODEL_DIR='@@MODEL_DIR@@'
+LOG_DIR='@@LOG_DIR@@'
+KEY_FILE='@@KEY_FILE@@'
+TEMPLATE_FILE='@@TEMPLATE_FILE@@'
+
+die() { echo "aiw-llm-ctl: $*" >&2; exit 2; }
+[[ $EUID -eq 0 ]] || die "must be run through sudo"                                         # AIW-GUARD
+[[ ${SUDO_UID:-} == "$RUN_UID" ]] || die "this controller is installed for another user"   # AIW-GUARD
+read_key_as_user() { runuser -u "$RUN_USER" -- head -c 300 -- "$KEY_FILE"; }                # AIW-RUNUSER
+
+need_int() { # NAME VALUE MIN MAX
+  [[ $2 =~ ^[0-9]{1,8}$ ]] || die "$1 must be a number"
+  (( 10#$2 >= $3 && 10#$2 <= $4 )) || die "$1 must be between $3 and $4"
+}
+
+cmd=${1:-}; (($#)) && shift
+case "$cmd" in
+  stop)    (($# == 0)) || die "stop takes no arguments"; exec "$DOCKER" stop -t 30 "$CONTAINER" ;;
+  running) (($# == 0)) || die "running takes no arguments"; exec "$DOCKER" ps -q -f "name=^${CONTAINER}\$" ;;
+  status-line) (($# == 0)) || die "status-line takes no arguments"; exec "$DOCKER" ps --filter "name=^${CONTAINER}\$" --format '{{.Status}}' ;;
+  logs)    (($# == 0)) || die "logs takes no arguments"; exec "$DOCKER" logs --tail 40 "$CONTAINER" ;;
+  start)
+    model_file=""; ctx=""; kv=""; reasoning=""; threads=""; port=""; log_name=""; use_template=0
+    while (($#)); do
+      case "$1" in
+        --template) use_template=1; shift; continue ;;
+        --model-file|--ctx|--kv|--reasoning|--threads|--port|--log-name) ;;
+        *) die "unknown option: $1" ;;
+      esac
+      (($# >= 2)) || die "$1 needs a value"
+      case "$1" in
+        --model-file) model_file=$2 ;; --ctx) ctx=$2 ;; --kv) kv=$2 ;; --reasoning) reasoning=$2 ;;
+        --threads) threads=$2 ;; --port) port=$2 ;; --log-name) log_name=$2 ;;
+      esac
+      shift 2
+    done
+    [[ $model_file =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.gguf$ ]] || die "--model-file: a plain file name ending in .gguf is required"
+    [[ $log_name =~ ^server-[0-9]{8}-[0-9]{6}\.log$ ]] || die "--log-name must look like server-YYYYMMDD-HHMMSS.log"
+    need_int --ctx "$ctx" 512 2097152
+    need_int --threads "$threads" 1 64
+    need_int --port "$port" 1024 65535
+    case "$kv" in f16|q8_0) ;; *) die "--kv must be f16 or q8_0" ;; esac
+    case "$reasoning" in on|off|auto) ;; *) die "--reasoning must be on, off or auto" ;; esac
+    [[ -f $MODEL_DIR/$model_file ]] || die "model file not found in the model folder: $model_file"
+    [[ $(realpath -e -- "$MODEL_DIR") == "$MODEL_DIR" ]] || die "model folder path contains a symlink or is not canonical: $MODEL_DIR"
+    [[ -d $LOG_DIR && ! -L $LOG_DIR ]] || die "log folder missing or a symlink: $LOG_DIR"
+    # no symlink anywhere in the path (the user owns the parents and could swap one in before docker mounts it read-write)
+    [[ $(realpath -e -- "$LOG_DIR") == "$LOG_DIR" ]] || die "log folder path contains a symlink or is not canonical: $LOG_DIR"
+    "$DOCKER" image inspect "$IMAGE_REF" >/dev/null 2>&1 || die "the pinned image is not present locally"
+
+    key=$(read_key_as_user) || die "cannot read the API key file as $RUN_USER"
+    [[ $key =~ ^[A-Za-z0-9]{32,128}$ ]] || die "the API key file does not contain a plain alphanumeric key of 32-128 characters"
+
+    tpl_mount=(); tpl_args=()
+    if ((use_template)); then
+      [[ -f $TEMPLATE_FILE ]] || die "patched chat template not found: $TEMPLATE_FILE"
+      [[ $(realpath -e -- "$TEMPLATE_FILE") == "$TEMPLATE_FILE" ]] || die "chat template path contains a symlink or is not canonical: $TEMPLATE_FILE"
+      tpl_mount=(-v "$TEMPLATE_FILE":/chat-template.jinja:ro); tpl_args=(--chat-template-file /chat-template.jinja)
+    fi
+    args=(-m "/models/$model_file" --alias "$ALIAS" -c "$((10#$ctx))" -np 1 -fa on -ctk "$kv" -ctv "$kv" -t "$((10#$threads))"
+          -ngl 99 -fit off --jinja --reasoning "$reasoning" "${tpl_args[@]}" --log-file "/logs/$log_name" --log-timestamps
+          --no-webui --host 0.0.0.0 --port 8080)
+    LLAMA_API_KEY=$key exec "$DOCKER" run -d --rm --name "$CONTAINER" --gpus all --user "$RUN_UID:$RUN_GID" \
+      --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,nodev,size=1g --pids-limit 1024 \
+      -e HOME=/tmp -e LLAMA_API_KEY -v "$MODEL_DIR":/models:ro -v "$LOG_DIR":/logs "${tpl_mount[@]}" \
+      -p "127.0.0.1:$((10#$port)):8080" --entrypoint /app/llama-server "$IMAGE_REF" "${args[@]}"
+    ;;
+  *) die "usage: aiw-llm-ctl stop | running | status-line | logs | start --model-file F --ctx N --kv K --reasoning R --threads N --port N --log-name L [--template]" ;;
+esac
