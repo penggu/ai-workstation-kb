@@ -50,7 +50,7 @@ echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.en
 | KV cache | q8_0 | about twice the context of f16 for 1-9 % speed (see the quantisation recipe) |
 | Context | 98304, one slot | leaves a little headroom under the 101K limit |
 | GPU layers | all (`-ngl 99 -fit off`) | fails loudly if it does not fit, instead of silently spilling to the CPU |
-| Reasoning | on (the model's default) | `--reasoning off` is available; the difference in a coding session is not measured |
+| Reasoning | on (the model's default) | Fixed when the server starts; change it with `./local-llm.sh restart --reasoning off` (about 1 min). In the short coding gate, thinking used about 3100-3900 tokens per answer against about 250 without, and some answers hit the 12000-token limit (`qwen-27b-quantisation-16gb.md`, 4b). The effect in a real Claude Code session is not measured. Claude Code's own `thinking` setting does not switch it: the server ignores the Anthropic `thinking` field (tested 2026-11-04). Per-request switching works only for clients that can send `chat_template_kwargs: {"enable_thinking": false}` |
 | Binding | `127.0.0.1:8080`, API key required | the key is generated once, stored mode 600, and kept out of logs and command lines. `start` now checks that a request with no key and one with a wrong key are both refused (see problem 5) |
 | Server log | `~/.local/state/ai-workstation/local-llm/server-logs/server-<time>.log` | one file per start, kept after stop or a crash (the container itself is removed on stop, with its logs). Added after a problem could not be investigated because the log was gone; not yet confirmed on a real start |
 
