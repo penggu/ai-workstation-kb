@@ -189,14 +189,14 @@ main() {
       for id in "${STEP_IDS[@]}"; do
         CURRENT_STEP=$id; CURRENT_ACTION=check
         if "${id}_check"; then ok "$id already done"; record "$id" apply skipped
-        else CURRENT_ACTION=apply; "${id}_apply"; "${id}_check" || die "$id: applied but the check still fails"; ok "$id done"; record "$id" apply done; fi
+        else CURRENT_ACTION=apply; "${id}_apply"; "${id}_check" || die "$id: applied but the check still fails"; ok "$id done"; record "$id" apply "done"; fi
       done
       CURRENT_STEP=selftest; CURRENT_ACTION=selftest; selftest ;;
     undo)
       if ((DRY_RUN)); then info "[dry-run] would remove $SUDOERS and $CTL"; exit 0; fi
       confirm "Remove $SUDOERS and $CTL (start/stop will ask for a password again)?" || die "aborted"
       info "asking for sudo once"; sudo -v
-      for id in r2 r1; do CURRENT_STEP=$id; CURRENT_ACTION=undo; info "<<< undo $id"; "${id}_undo"; ok "$id undone"; record "$id" undo done; done ;;
+      for id in r2 r1; do CURRENT_STEP=$id; CURRENT_ACTION=undo; info "<<< undo $id"; "${id}_undo"; ok "$id undone"; record "$id" undo "done"; done ;;
     *) usage; die "unknown command: $cmd" ;;
   esac
 }

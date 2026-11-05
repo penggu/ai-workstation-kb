@@ -186,7 +186,7 @@ PY
 
 export_results() {
   mkdir -p "$KB_DATA"
-  local out="$KB_DATA/eval-short-$(date +%F).jsonl"
+  local out; out="$KB_DATA/eval-short-$(date +%F).jsonl"
   python3 - "$RESULTS" "$out" <<'PY'
 import json, glob, os, sys
 res, out = sys.argv[1:3]; n = 0
@@ -242,7 +242,7 @@ case "$cmd" in
       [[ -f $RESULTS/$id.ok ]] && { arch="$STATE_DIR/results-archive/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$arch"; mv "$RESULTS/$id".* "$arch/" 2>/dev/null || true; info "config changed: archived the old results of $id -> $arch"; }
       info ">>> run $id"; CURRENT_ACTION=run
       run_job "$q"
-      ok "$id done"; record "$id" evalshort done
+      ok "$id done"; record "$id" evalshort "done"
     done
     echo; show_status; echo; report
     ((DRY_RUN)) || export_results

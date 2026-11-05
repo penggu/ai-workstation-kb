@@ -74,7 +74,7 @@ step_apply() { # id
     die "$id: apply finished but the check still fails (the step did not reach its goal)"
   fi
   ok "$id done"
-  record "$id" apply done
+  record "$id" apply "done"
 }
 
 step_undo() { # id
@@ -84,7 +84,7 @@ step_undo() { # id
   info "<<< undo $id - $("${id}_desc")"
   "${id}_undo"
   ok "$id undone"
-  record "$id" undo done
+  record "$id" undo "done"
 }
 
 cmd_status() {
@@ -98,7 +98,7 @@ cmd_status() {
 }
 
 cmd_diag() {
-  local f="$STATE_DIR/diag-$(date +%Y%m%d-%H%M%S).txt"
+  local f; f="$STATE_DIR/diag-$(date +%Y%m%d-%H%M%S).txt"
   {
     echo "== docker version"; docker --version 2>&1 || true
     echo "== docker info (runtimes etc.)"; sudo docker info 2>&1 | grep -iE 'version|runtimes|default runtime|storage driver|cgroup|root dir' || true

@@ -20,7 +20,7 @@ for f in "${SH[@]}"; do run bash -n "$f"; done
 
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-  run shellcheck -x -S error "${SH[@]}"
+  run shellcheck -x -P SCRIPTDIR -S error "${SH[@]}"
 elif [[ ${CI:-} == true || ${REQUIRE_SHELLCHECK:-0} == 1 ]]; then
   echo "FAILED: shellcheck is required here but not installed"; rc=1
 else

@@ -118,12 +118,12 @@ step_apply() {
   "${id}_apply"
   CURRENT_ACTION=post-check
   "${id}_check" || die "$id: apply finished but the check still fails (the step did not reach its goal)"
-  ok "$id done"; record "$id" apply done
+  ok "$id done"; record "$id" apply "done"
 }
 step_undo() {
   local id=$1; CURRENT_STEP=$id; CURRENT_ACTION=undo
   if ((DRY_RUN)); then info "[dry-run] would undo $id - $("${id}_desc")"; return 0; fi
-  info "<<< undo $id - $("${id}_desc")"; "${id}_undo"; ok "$id undone"; record "$id" undo done
+  info "<<< undo $id - $("${id}_desc")"; "${id}_undo"; ok "$id undone"; record "$id" undo "done"
 }
 cmd_status() {
   local id state; printf '%-5s %-8s %s\n' STEP STATE DESCRIPTION
@@ -150,7 +150,7 @@ cmd_update() {
   record update apply "$cur->$cand"
 }
 cmd_diag() {
-  local f="$STATE_DIR/diag-$(date +%Y%m%d-%H%M%S).txt"
+  local f; f="$STATE_DIR/diag-$(date +%Y%m%d-%H%M%S).txt"
   {
     echo "== version"; tailscale version 2>&1 || true
     echo "== status"; tailscale status 2>&1 | sed 's/^\([0-9.]*\) *\([^ ]*\)/\1 <name>/' | head -20 || true

@@ -96,12 +96,12 @@ step_apply() {
   "${id}_apply"
   CURRENT_ACTION=post-check
   "${id}_check" || die "$id: apply finished but the check still fails (the step did not reach its goal)"
-  ok "$id done"; record "$id" apply done
+  ok "$id done"; record "$id" apply "done"
 }
 step_undo() {
   local id=$1; CURRENT_STEP=$id; CURRENT_ACTION=undo
   if ((DRY_RUN)); then info "[dry-run] would undo $id - $("${id}_desc")"; return 0; fi
-  info "<<< undo $id - $("${id}_desc")"; "${id}_undo"; ok "$id undone"; record "$id" undo done
+  info "<<< undo $id - $("${id}_desc")"; "${id}_undo"; ok "$id undone"; record "$id" undo "done"
 }
 cmd_status() {
   local id state; printf '%-5s %-8s %s\n' STEP STATE DESCRIPTION
@@ -118,7 +118,7 @@ cmd_update() {
   if ((DRY_RUN)); then info "[dry-run] would run: strata update --check"; return 0; fi
   "$BIN_DIR/strata" update --check || true
   info "to update: $BIN_DIR/strata update   (it asks before stopping a running model)"
-  record update check done
+  record update check "done"
 }
 cmd_logs() {
   echo "state dir:    $STATE_DIR"
