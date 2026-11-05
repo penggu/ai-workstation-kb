@@ -9,9 +9,22 @@
 # Nothing is written to disk and your normal `claude` is untouched: the settings exist only in the environment of this
 # one process. Run it inside the project you want to work on (it does not change directory).
 #
-#   ./claude-local.sh [--dry-run] [--reuse-tunnel] [claude arguments...]
+#   ./claude-local.sh [--backend llama|strata|auto] [--dry-run] [--reuse-tunnel] [claude arguments...]
 #   e.g.   ./claude-local.sh --resume        ./claude-local.sh -p "explain main.py"
 # Options before `--` that the script does not know are passed to claude; `--` stops option parsing.
+#
+# BACKEND (default auto, or LOCAL_LLM_BACKEND): which local server to talk to. Only one of them can hold the GPU, so
+# `auto` simply uses the one that answers: a Strata server on STRATA_PORT (default 8090) if one does, otherwise the
+# llama.cpp server (local-llm.sh; on a Mac without a key file: through the SSH tunnel below). If both answer, it stops
+# and asks you to choose with --backend. The probe sends no credential; the llama.cpp key is only sent to the llama.cpp
+# backend.
+#   llama   key file, LOCAL_LLM_PORT (8080), LOCAL_LLM_CTX and LOCAL_LLM_MODEL (must match local-llm.sh), remote tunnel.
+#   strata  github.com/Niko1221/Strata: the model name and context are read from the server itself (LOCAL_LLM_CTX and
+#           LOCAL_LLM_MODEL are ignored). Strata is started without an API key by default, so the token is the constant
+#           "strata-local"; if you start it with a key, put the key in a file and set STRATA_TOKEN_FILE. Local only.
+#           Start it e.g.:  strata launch --model q2_0 --data-dir ~/strata-data --context 128k --vision off \
+#                                  --drafting mtp --tune skip --access local --port 8090 --yes --no-tui
+#   Max output tokens default to 16000 (llama) / 4096 (strata); LOCAL_LLM_MAX_OUTPUT overrides both.
 #
 # REMOTE MODE needs the SSH host (an alias from your ~/.ssh/config). It is NOT stored in this repository: set it in
 # the environment, or in a private file outside any repository (default ~/.config/ai-workstation/private.env,
@@ -39,8 +52,11 @@ set -euo pipefail
 PORT=${LOCAL_LLM_PORT:-8080}
 TUNNEL_PORT=${LOCAL_LLM_TUNNEL_PORT:-18080}
 CTX=${LOCAL_LLM_CTX:-98304}
-MAXOUT=${LOCAL_LLM_MAX_OUTPUT:-16000}
+MAXOUT=${LOCAL_LLM_MAX_OUTPUT:-}      # default depends on the backend, set below
 MODEL=${LOCAL_LLM_MODEL:-local-qwen}
+BACKEND=${LOCAL_LLM_BACKEND:-auto}
+SPORT=${STRATA_PORT:-8090}
+STRATA_TOKEN_FILE=${STRATA_TOKEN_FILE:-}
 KEY_FILE=${LOCAL_LLM_KEY_FILE:-$HOME/.local/state/ai-workstation/local-llm/api-key}
 REMOTE_KEY_FILE=${LOCAL_LLM_REMOTE_KEY_FILE:-'~/.local/state/ai-workstation/local-llm/api-key'}   # expanded by the remote shell
 
@@ -57,11 +73,16 @@ while (($#)); do
   case "$1" in
     --dry-run) DRY=1 ;;
     --reuse-tunnel) REUSE=1 ;;
+    --backend) (($# >= 2)) || { echo "--backend needs a value: llama, strata or auto" >&2; exit 2; }; BACKEND=$2; shift ;;
+    --backend=*) BACKEND=${1#--backend=} ;;
     --) shift; CLAUDE_ARGS+=("$@"); break ;;
     *) CLAUDE_ARGS+=("$1") ;;
   esac
   shift
 done
+case "$BACKEND" in auto|llama|strata) ;; *) echo "--backend must be llama, strata or auto (got: $BACKEND)" >&2; exit 2 ;; esac
+[[ $SPORT =~ ^[0-9]{1,5}$ ]] || { echo "STRATA_PORT must be a number" >&2; exit 2; }
+[[ -z $MAXOUT || $MAXOUT =~ ^[0-9]{1,6}$ ]] || { echo "LOCAL_LLM_MAX_OUTPUT must be a number" >&2; exit 2; }
 if ((${#CLAUDE_ARGS[@]})); then
   for a in "${CLAUDE_ARGS[@]}"; do
     case "$a" in --permission-mode*) echo "note: the permission mode is forced back to 'default' while CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (measured earlier)." >&2 ;; esac
@@ -109,9 +130,50 @@ trap 'exit 143' TERM
 health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/dev/null || true; }
 port_in_use() { local rc=0; curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null || rc=$?; ((rc != 7)); }   # curl exit 7 = connection refused
 
+# Does a Strata server answer on $SPORT? Prints "MODEL CTX" (read from the server, checked against strict patterns).
+# $1 = token to send, or empty to send nothing (the auto probe sends no credential; a token goes in through stdin,
+# never on a command line).
+strata_probe() {
+  local body hdr=()
+  [[ -z ${1:-} ]] || hdr=(-H @-)
+  body=$( { [[ -z ${1:-} ]] || printf 'Authorization: Bearer %s\n' "$1"; } | curl -s --noproxy '*' --max-time 5 ${hdr[@]+"${hdr[@]}"} "http://127.0.0.1:$SPORT/v1/models" 2>/dev/null ) || return 1
+  printf '%s' "$body" | python3 -I -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)["data"][0]
+    m = d["id"]; c = int(d.get("meta", {}).get("n_ctx", 0))
+except Exception:
+    sys.exit(1)
+if not re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", m) or not 2048 <= c <= 4194304:
+    sys.exit(1)
+print(m, c)
+'
+}
+
+STRATA_TOKEN="strata-local"
+[[ -n $STRATA_TOKEN_FILE && -s $STRATA_TOKEN_FILE ]] && STRATA_TOKEN=$(head -c 300 "$STRATA_TOKEN_FILE" | tr -d '\r\n')
+S_INFO=""
+if [[ $BACKEND == auto ]]; then
+  S_INFO=$(strata_probe "" 2>/dev/null) || S_INFO=""
+  L_UP=0; [[ -s $KEY_FILE && $(health "http://127.0.0.1:$PORT") == 200 ]] && L_UP=1
+  if [[ -n $S_INFO && $L_UP == 1 ]]; then
+    echo "both a Strata server (port $SPORT) and the llama.cpp server (port $PORT) answer. Choose one: --backend strata or --backend llama." >&2; exit 1
+  elif [[ -n $S_INFO ]]; then BACKEND=strata
+  else BACKEND=llama; fi
+elif [[ $BACKEND == strata ]]; then
+  S_INFO=$(strata_probe "$STRATA_TOKEN" 2>/dev/null) || S_INFO=""
+  [[ -n $S_INFO ]] || { echo "Strata does not answer on http://127.0.0.1:$SPORT (or its answer has no model name and context). Start it first (example in the header of this script); if it uses an API key, set STRATA_TOKEN_FILE. For llama.cpp use --backend llama." >&2; exit 1; }
+fi
+
 TOKEN=""
-if [[ -s $KEY_FILE ]]; then
-  # ---- local mode: the server runs on this machine
+if [[ $BACKEND == strata ]]; then
+  # ---- Strata: local only; model name and context come from the server
+  MODE=local; BASE="http://127.0.0.1:$SPORT"
+  read -r MODEL CTX <<<"$S_INFO"
+  TOKEN=$STRATA_TOKEN
+  [[ -n $MAXOUT ]] || MAXOUT=4096
+elif [[ -s $KEY_FILE ]]; then
+  # ---- llama.cpp, local mode: the server runs on this machine
   MODE=local; BASE="http://127.0.0.1:$PORT"
   TOKEN=$(cat "$KEY_FILE")
 else
@@ -137,7 +199,9 @@ else
   fi
 fi
 
-[[ $(health "$BASE") == 200 ]] || { echo "server at $BASE is not healthy; on the GPU machine run ./local-llm.sh start (and status)" >&2; exit 1; }
+[[ -n $MAXOUT ]] || MAXOUT=16000
+# (a Strata server was already checked by the probe above)
+[[ $BACKEND == strata || $(health "$BASE") == 200 ]] || { echo "server at $BASE is not healthy; on the GPU machine run ./local-llm.sh start (and status)" >&2; exit 1; }
 
 # Non-secret settings also go through --settings, because a settings file's `env` block (yours or the project's)
 # overrides the shell environment; this keeps a project file from redirecting the requests. The token cannot go
@@ -166,7 +230,7 @@ PY
 )
 
 if ((DRY)); then
-  echo "mode: $MODE   endpoint: $BASE"
+  echo "backend: $BACKEND   mode: $MODE   endpoint: $BASE   model: $MODEL   context: $CTX"
   echo "would run: claude --permission-mode default --settings '<json below>' ${CLAUDE_ARGS[*]:-}"
   echo "token: obtained ($MODE), kept in the environment only, not shown"
   echo "web search MCP: $SEARCH_STATE"

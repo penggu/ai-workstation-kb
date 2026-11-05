@@ -22,6 +22,20 @@ cd <your project>
 
 `local-llm.sh start` refuses to run if a benchmark or anything else already holds the GPU, and `claude-local.sh` refuses to start if the server is not healthy.
 
+### Which server: llama.cpp or Strata (`--backend`)
+
+`claude-local.sh` can talk to two local servers: the llama.cpp container above, or a [Strata](https://github.com/Niko1221/Strata) server (`../../scripts/setup/strata/strata.sh` installs it; see that script's header for the model download). Only one can hold the GPU, so the default `--backend auto` uses whichever answers: Strata on port 8090 if it does, otherwise llama.cpp. If both answer it stops and asks you to choose (`--backend llama` or `--backend strata`; also `LOCAL_LLM_BACKEND`).
+
+| | llama.cpp | Strata |
+|---|---|---|
+| Model name, context | fixed by `local-llm.sh` (`local-qwen`, 98304) | read from the server (`/v1/models`) |
+| API key | generated key file | none by default: the constant token `strata-local`; if you start Strata with a key, put it in a file and set `STRATA_TOKEN_FILE` |
+| Max output tokens | 16000 | 4096 (`strata connect claude-code` recommends this); `LOCAL_LLM_MAX_OUTPUT` overrides both |
+| Thinking | fixed at server start | on by default; the server honours the Anthropic `thinking` field per request (tested 2026-11-04 with `thinking: {type: "disabled"}`: 196 output tokens instead of 991 for the same prompt) |
+| From another machine | yes (SSH tunnel) | not through this script (local only) |
+
+The probe in `auto` sends no credential; the llama.cpp key is sent only to the llama.cpp backend, a Strata token only to Strata. Tested with stand-in servers (both answering, either alone, wrong port, token file, no credential on the probe) and with a real Strata server by `--dry-run`. **Not yet done: a real Claude Code coding session on Strata.** Strata's own `strata connect claude-code --check` (one prompt, one tool call) passed. We did not use its `--write` option because it merges the settings into `~/.claude/settings.json`, which would redirect every Claude Code session.
+
 ### From another machine (for example a Mac)
 
 The server listens only on the GPU machine's `127.0.0.1`. `claude-local.sh` detects that there is no local key file and switches to remote mode: it reads the API key over SSH, opens a tunnel (`ssh -N -L`, bound to `127.0.0.1` on your machine, local port 18080), runs the session, and closes the tunnel when the session ends.
