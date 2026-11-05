@@ -15,6 +15,7 @@ Usage: setup.sh <command> [options] [steps...]
 
 Commands
   status               show which steps are DONE / PENDING (changes nothing)
+  plan [steps]         show what apply would do, change nothing (same as: apply --dry-run)
   apply [steps]        apply steps in order; already-done steps are skipped
   undo <steps>         undo the given steps, in reverse order
   undo-all             undo every step, in reverse order (asks for confirmation)
@@ -149,6 +150,9 @@ main() {
   case "$cmd" in
     help|--help|-h) usage; exit 0 ;;
     logs) cmd_logs; exit 0 ;;
+    plan) cmd=apply; DRY_RUN=1 ;;   # alias for: apply --dry-run
+    status|apply|undo|undo-all|diag|_selftest_fail) ;;
+    *) usage >&2; echo "unknown command: $cmd" >&2; exit 2 ;;   # before logging and sudo
   esac
 
   if ((EUID == 0)); then
@@ -192,7 +196,6 @@ main() {
       ;;
     diag) cmd_diag ;;
     _selftest_fail) _selftest_fail ;;
-    *) usage; die "unknown command: $cmd" ;;
   esac
 }
 
