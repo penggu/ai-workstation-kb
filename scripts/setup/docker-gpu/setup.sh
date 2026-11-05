@@ -185,7 +185,7 @@ main() {
     undo-all)
       mapfile -t ids < <(printf '%s\n' "${STEP_IDS[@]}" | sort -r)
       info "undo-all plan: ${ids[*]}"
-      ((PURGE_DATA)) && warn "--purge-data is set: /var/lib/docker will be deleted"
+      ((PURGE_DATA)) && warn "--purge-data is set: /var/lib/docker will NOT be deleted; step 3 will print how to remove it yourself"
       ((DRY_RUN)) || confirm "Undo ALL steps?" || die "aborted"
       for id in "${ids[@]}"; do step_undo "$id"; done
       echo; cmd_status
