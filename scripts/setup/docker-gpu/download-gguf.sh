@@ -72,14 +72,14 @@ PY
 }
 
 is_done() { # quant -> 0 if the file exists, has the expected size, and was verified against the expected sha256
-  local q=$1 f="$DEST/$(fname "$1")" size oid
+  local q=$1 f size oid; f="$DEST/$(fname "$1")"
   [[ -f $f && -f $(marker_ok "$q") ]] || return 1
   read -r size oid < <(expected "$q") || return 1
   [[ $(stat -c %s "$f") == "$size" && $(cat "$(marker_ok "$q")") == "$oid" ]]
 }
 
 download_one() { # quant
-  local q=$1 f="$DEST/$(fname "$1")" size oid
+  local q=$1 f size oid; f="$DEST/$(fname "$1")"
   read -r size oid < <(expected "$q")
   [[ -n $oid ]] || die "no sha256 published for $(fname "$q")"
   local present=0; [[ -f $f ]] && present=1
@@ -125,7 +125,7 @@ case "$cmd" in
       if ((DRY_RUN)); then read -r size _ < <(expected "$q"); info "[dry-run] would download $(fname "$q") ($((size / 1048576)) MiB)"; continue; fi
       info ">>> $q"; CURRENT_ACTION=download
       download_one "$q"
-      ok "$q done"; record "$q" download done
+      ok "$q done"; record "$q" download "done"
     done
     ;;
   undo)

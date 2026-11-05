@@ -166,7 +166,7 @@ PY
 
 export_results() {
   mkdir -p "$KB_DATA"
-  local out="$KB_DATA/fit-memory-$(date +%F).jsonl" n=0 f
+  local out n=0 f; out="$KB_DATA/fit-memory-$(date +%F).jsonl"
   : >"$out"
   for f in "$RESULTS"/*.jsonl; do
     [[ -e $f && -f ${f%.jsonl}.ok ]] || continue
@@ -209,7 +209,7 @@ case "$cmd" in
       if ((DRY_RUN)); then info "[dry-run] would measure $id at ${#CONTEXTS[@]} context lengths"; continue; fi
       info ">>> measure $id"; CURRENT_ACTION=run
       run_job "$q" "$kv"
-      ok "$id done"; record "$id" fitmem done
+      ok "$id done"; record "$id" fitmem "done"
     done
     echo; show_status; echo; report
     ((DRY_RUN)) || export_results

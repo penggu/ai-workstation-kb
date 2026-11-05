@@ -242,7 +242,7 @@ PY
 
 export_results() {
   mkdir -p "$KB_DATA"
-  local out="$KB_DATA/diag-spill-$(date +%F).jsonl"
+  local out; out="$KB_DATA/diag-spill-$(date +%F).jsonl"
   python3 - "$RESULTS" "$out" <<'PY'
 import json, os, sys
 res, out = sys.argv[1:3]; n = 0
@@ -288,7 +288,7 @@ case "$cmd" in
       ((todo == 1)) && preflight
       info ">>> run $j - $(desc "$j")"; CURRENT_ACTION=run
       "run_$j"
-      ok "$j done"; record "$j" diag done
+      ok "$j done"; record "$j" diag "done"
     done
     echo; show_status; echo; report
     ((DRY_RUN)) || export_results

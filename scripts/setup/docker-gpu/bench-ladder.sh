@@ -69,7 +69,7 @@ case "$TIER" in fit|spill|all) ;; *) echo "--tier must be fit, spill or all" >&2
 is_spill() { local q; for q in "${SPILL_QUANTS[@]}"; do [[ $q == "$1" ]] && return 0; done; return 1; }
 job_id()   { echo "$1__$2"; }
 planned_depths() { # quant kv -> "0,4096,..." (fit tier only)
-  local f="$FITMEM_RESULTS/$(job_id "$1" "$2").jsonl"
+  local f; f="$FITMEM_RESULTS/$(job_id "$1" "$2").jsonl"
   if [[ -f ${f%.jsonl}.ok ]]; then python3 "$HERE/maxctx.py" "$f" "$FIT_MARGIN_MIB" "$DEPTH_PCT" "$DEPTH_MENU"
   else echo "0,8192"; fi
 }
@@ -81,7 +81,7 @@ job_done() {
   [[ $(cat "$RESULTS/$id.depths" 2>/dev/null) == "$(planned_depths "$1" "$2")" ]]
 }
 archive_job() { # move a stale job's files out of the way (kept, not deleted)
-  local id=$1 dir="$STATE_DIR/results-archive/$(date +%Y%m%d-%H%M%S)"
+  local id=$1 dir; dir="$STATE_DIR/results-archive/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dir"; mv "$RESULTS/$id".* "$dir/" 2>/dev/null || true
   info "archived old results of $id -> $dir"
 }
@@ -280,7 +280,7 @@ PY
 
 export_results() {
   mkdir -p "$KB_DATA"
-  local out="$KB_DATA/llama-ladder-$(date +%F).jsonl"
+  local out; out="$KB_DATA/llama-ladder-$(date +%F).jsonl"
   python3 - "$RESULTS" "$out" <<'PY'
 import json, glob, os, sys
 res, out = sys.argv[1:3]
@@ -347,7 +347,7 @@ case "$cmd" in
       [[ -f $RESULTS/$id.ok ]] && archive_job "$id"
       info ">>> run $id"; CURRENT_ACTION=run
       if is_spill "$q"; then run_spill_job "$q" "$kv"; else run_job "$q" "$kv"; fi
-      ok "$id done"; record "$id" bench done
+      ok "$id done"; record "$id" bench "done"
     done
     echo; show_status; echo; report
     ((DRY_RUN)) || export_results

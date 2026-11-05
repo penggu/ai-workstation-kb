@@ -141,7 +141,7 @@ case "$cmd" in
       info ">>> apply $id - $("${id}_desc")"; CURRENT_ACTION=apply
       "${id}_apply"
       CURRENT_ACTION=post-check
-      if "${id}_check"; then ok "$id done"; record "$id" apply done
+      if "${id}_check"; then ok "$id done"; record "$id" apply "done"
       else warn "$id did not reach its goal (see warnings above); it will run again next time"; record "$id" apply incomplete; fi
     done
     echo; show_status
@@ -151,7 +151,7 @@ case "$cmd" in
     for id in l3 l2 l1; do
       CURRENT_STEP=$id; CURRENT_ACTION=undo
       ((DRY_RUN)) && { info "[dry-run] would undo $id"; continue; }
-      info "<<< undo $id"; "${id}_undo"; record "$id" undo done
+      info "<<< undo $id"; "${id}_undo"; record "$id" undo "done"
     done
     echo; show_status
     ;;

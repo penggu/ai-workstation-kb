@@ -211,7 +211,7 @@ PY
 
 export_results() {
   mkdir -p "$KB_DATA"
-  local out="$KB_DATA/eval-kl-$(date +%F).jsonl"
+  local out; out="$KB_DATA/eval-kl-$(date +%F).jsonl"
   python3 - "$RESULTS" "$out" "$CHUNKS" "$CTX" "$WORK/corpus.manifest.json" <<'PY'
 import json, glob, os, sys
 res, out, chunks, ctx, man = sys.argv[1:6]
@@ -260,7 +260,7 @@ case "$cmd" in
         [[ -f $MODEL_DIR/$(model_file "$q") ]] || { warn "$q skipped: file not there yet"; continue; }
         info ">>> score $q"; CURRENT_ACTION=run
         run_target "$q"
-        ok "$q done"; record "$q" evalkl done
+        ok "$q done"; record "$q" evalkl "done"
       done
     fi
     echo; show_status; echo; report
