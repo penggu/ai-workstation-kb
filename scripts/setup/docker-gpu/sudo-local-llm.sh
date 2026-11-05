@@ -162,7 +162,9 @@ selftest() { # never starts or stops anything; bad requests must be refused befo
   local rl; rl=$(sysctl -n net.ipv4.conf.all.route_localnet 2>/dev/null || echo ?)
   [[ $rl == 1 ]] && warn "net.ipv4.conf.all.route_localnet=1: with some Docker versions a port published on 127.0.0.1 is reachable from the LAN. Check the API from another machine, and update Docker if it answers." \
                  || ok "route_localnet is not set ($rl): a loopback-published port stays on the loopback"
-  if sudo -k -n -l /usr/bin/docker run --rm hello-world >/dev/null 2>&1; then err "docker run is allowed without a password: too broad"; return 1; fi
+  # `sudo -l` only says whether a command is ALLOWED (sudo-group members may run anything after a password), not whether
+  # it needs one, so actually try a harmless docker command: it must be refused for lack of a password.
+  if sudo -k -n /usr/bin/docker --version >/dev/null 2>&1; then err "docker runs without a password: the rule is too broad"; return 1; fi
   ok "docker itself still needs a password (as intended)"
 }
 
