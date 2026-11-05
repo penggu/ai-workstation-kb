@@ -58,6 +58,18 @@ init_logging() {
   trap '_cleanup' EXIT
 }
 
+# write_key_envfile DEST VARNAME - writes LLAMA_API_KEY=<value of $VARNAME> to DEST (mode 600) for `docker run --env-file`,
+# so the key is on no command line and, because tracing is off while it is expanded, not in the xtrace file either.
+# Pass the variable NAME, never its value (the call line itself is traced). Delete DEST after docker has read it.
+write_key_envfile() {
+  local dest=$1 traced=0
+  [[ $- == *x* ]] && traced=1
+  { set +x; } 2>/dev/null
+  ( umask 077; printf 'LLAMA_API_KEY=%s\n' "${!2}" >"$dest" )
+  ((traced)) && set -x
+  return 0
+}
+
 snapshot() {
   info "---- environment snapshot ----"
   info "date:     $(date -Is)"

@@ -61,6 +61,19 @@ D="$W/etc/e.json"; track_original T5 "$D"; printf '{}\n' >"$D"
 managed_restore T5 "$D"
 t "file created by external tool is removed"    '[[ ! -e $D ]]'
 
+echo "E) write_key_envfile: mode-600 env file, and the key never reaches the xtrace file"
+SECRET=s3cr3t-key-0123456789abcdef
+E="$W/llama.env"; TR="$W/xtrace.out"
+exec 8>"$TR"
+( BASH_XTRACEFD=8; set -x; write_key_envfile "$E" SECRET; [[ $- == *x* ]] ) && traced_after=yes || traced_after=no
+( BASH_XTRACEFD=8; set +x; write_key_envfile "$E" SECRET; [[ $- != *x* ]] ) && off_stays_off=yes || off_stays_off=no
+exec 8>&-
+t "file holds LLAMA_API_KEY=<key>"       '[[ $(cat "$E") == "LLAMA_API_KEY=$SECRET" ]]'
+t "file mode is 600"                     '[[ $(stat -c %a "$E") == 600 ]]'
+t "tracing restored when it was on"      '[[ $traced_after == yes ]]'
+t "tracing stays off when it was off"    '[[ $off_stays_off == yes ]]'
+t "trace shows the call, not the key"    'grep -q write_key_envfile "$TR" && ! grep -qF "$SECRET" "$TR"'
+
 echo
 echo "passed: $pass  failed: $fail"
 ((fail == 0))
