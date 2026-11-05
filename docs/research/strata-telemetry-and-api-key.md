@@ -73,29 +73,18 @@ By source, **no**.
 
 ## What is still unverified, and how to verify
 
-Run on a restart you choose to do; none of it was done here. Replace `<...>` placeholders.
+Done on 2026-11-05 (see "Live verification"): auth enforced with a key (401 without or with a wrong key, 200 with the right one, on GET and POST), `/health` open with `"api_key": true`, Claude Code through a keyed Strata with `STRATA_TOKEN_FILE`, and a 2-minute network sample. What remains, replace `<...>` placeholders:
 
-1. **Auth enforced on 127.0.0.1:8090** (needs a restart):
-   ```bash
-   export STRATA_TEST_KEY=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')
-   strata launch <same model/context flags as now> --access local --api-key-env STRATA_TEST_KEY --restart --no-tui
-   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8090/v1/models                         # expect 401
-   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer wrong" http://127.0.0.1:8090/v1/models   # 401
-   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $STRATA_TEST_KEY" http://127.0.0.1:8090/v1/models  # 200
-   curl -s -o /dev/null -w '%{http_code}\n' -H "x-api-key: $STRATA_TEST_KEY" http://127.0.0.1:8090/v1/models            # 200
-   curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8090/v1/messages  # 401, not 400
-   curl -s http://127.0.0.1:8090/health      # source says: still open, shows "api_key": true
-   ```
-2. **Key change needs a restart:** run the same `strata launch` with a different `--api-key-env` value and **without** `--restart --no-tui`; expect a one-line refusal naming the running model. Also confirm old key still returns 200 until restarted.
-3. **`--new-key` and local:** `strata launch ... --access local --new-key --restart` then `strata launch --show-key`, and repeat check 1 with that key.
-4. **Idle/serving network, over time:** for 15 min idle, then during 5 requests, sample every 5 s:
+1. **Key change needs a restart:** run the same `strata launch` with a different `--api-key-env` value and **without** `--restart --no-tui`; expect a one-line refusal naming the running model. Also confirm the running server still answers with the old key.
+2. **`--new-key` and local:** `strata launch ... --access local --new-key --restart` then `strata launch --show-key`, and repeat the 401/200 checks with that key.
+3. **Idle/serving network, over time:** for 15 min idle, then during 5 requests, sample every 5 s:
    ```bash
    P=$(pgrep -d'|' -f 'serve.server|strata_control.runtime|components/engine')
    for i in $(seq 180); do ss -tnap | grep -E "pid=($P)" | grep -v 127.0.0.1; ss -unap | grep -E "pid=($P)"; sleep 5; done | sort | uniq -c
    ```
-   Expect empty output. Also run once with `strata monitor`/the launch TUI open to see the daily feed read (it connects to GitHub only if `~/.local/share/strata/components` state is older than 24 h; set `STRATA_UPDATE_CHECK=0` to confirm it disappears). Short-lived connections can fall between samples; a true proof needs `tcpdump`/`nftables` logging or running under `unshare -n` / a firewall rule denying everything but loopback (no sudo was used here).
-5. **Engine binary and request headers of the daily check:** not inspected; check with `strings` on the engine for URLs, and with the capture above while the monitor runs.
-6. **Claude Code through a keyed Strata:** repeat the recipe's `claude-local.sh` with `STRATA_TOKEN_FILE` pointing at a file with the key.
+   Expect empty output. Also run once with `strata monitor`/the launch TUI open to see the daily feed read (it connects to GitHub only if the `~/.local/share/strata/components` state is older than 24 h). For proof rather than a sample, use a packet capture or a network namespace without a route out.
+4. **Engine binary and request headers of the daily check:** not inspected; check with `strings` on the engine for URLs, and with the capture above while the monitor runs.
+5. **A longer Claude Code coding session with file edits on Strata** (issue #18).
 
 ## Sources
 
@@ -122,6 +111,6 @@ So the source reading above is confirmed for `--access local` with a key. Claude
 
 Network sample: `ss -tnup` every 5 s for 2 minutes (idle, then two requests). The Strata processes (terminal, serve, engine) had no non-loopback connection in a final per-process check; the sampling loop (filtered by process name) recorded none either. `ss -p` without root can hide processes of other users, which is why the machine-wide list is only context. Limits: one 2-minute window, no packet capture, and three non-loopback sockets in the machine-wide list had no visible owner (not attributed to Strata, not proven otherwise). The sampling loop's first filter matched process names, so the per-process check is the stronger evidence.
 
-Still unverified: key rotation without restart (source says impossible), a long idle run, the engine binary, a longer coding session with edits.
+Still unverified: see the list in the previous section.
 
-Sections above that list the auth test or the idle/load sampling as "still unverified" describe the state before this verification; the list just above is the current one. Not tested: a streamed prompt on the load side beyond the two short requests, and the `local-llm.sh` style "start refuses an unauthenticated request" check (not built into `strata.sh`; see issue #16).
+Not tested on the load side: a streamed prompt beyond the two short requests, and a `local-llm.sh` style "start refuses an unauthenticated request" check (not built into `strata.sh`; see issue #16).

@@ -16,8 +16,8 @@
 # BACKEND (default auto, or LOCAL_LLM_BACKEND): which local server to talk to. Only one of them can hold the GPU, so
 # `auto` simply uses the one that answers: a Strata server on STRATA_PORT (default 8090) if one does, otherwise the
 # llama.cpp server (local-llm.sh; on a Mac without a key file: through the SSH tunnel below). If both answer, it stops
-# and asks you to choose with --backend. The probe sends no credential; the llama.cpp key is only sent to the llama.cpp
-# backend.
+# and asks you to choose with --backend. `auto` recognises Strata through /health, which needs no credential (also on a Strata started with a key); the llama.cpp
+# key is only sent to the llama.cpp backend, the Strata token only to Strata.
 #   llama   key file, LOCAL_LLM_PORT (8080), LOCAL_LLM_CTX and LOCAL_LLM_MODEL (must match local-llm.sh), remote tunnel.
 #   strata  github.com/Niko1221/Strata: the model name and context are read from the server itself (LOCAL_LLM_CTX and
 #           LOCAL_LLM_MODEL are ignored). Without an API key the token is the constant "strata-local". We start Strata with a key
@@ -131,11 +131,10 @@ health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/de
 port_in_use() { local rc=0; curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null || rc=$?; ((rc != 7)); }   # curl exit 7 = connection refused
 
 # Does a Strata server answer on $SPORT? Prints "MODEL CTX" (read from the server, checked against strict patterns).
-# $1 = token to send, or empty to send nothing (a token goes in through stdin, never on a command line).
+# $1 = the token; it goes in through stdin, never on a command line.
 strata_probe() {
-  local body hdr=()
-  [[ -z ${1:-} ]] || hdr=(-H @-)
-  body=$( { [[ -z ${1:-} ]] || printf 'Authorization: Bearer %s\n' "$1"; } | curl -s --noproxy '*' --max-time 5 ${hdr[@]+"${hdr[@]}"} "http://127.0.0.1:$SPORT/v1/models" 2>/dev/null ) || return 1
+  local body
+  body=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --noproxy '*' --max-time 5 -H @- "http://127.0.0.1:$SPORT/v1/models" 2>/dev/null) || return 1
   printf '%s' "$body" | python3 -I -c '
 import json, re, sys
 try:
