@@ -128,8 +128,8 @@ start_server() {
     start_wait; return 0
   fi
   local envf="$TMPD/llama.env"
+  write_key_envfile "$envf" KEY
   { set +x; } 2>/dev/null
-  ( umask 077; printf 'LLAMA_API_KEY=%s\n' "$KEY" >"$envf" )
   d run -d --rm --name "$CONTAINER" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp --env-file "$envf" \
       -v "$MODEL_DIR":/models:ro -v "$SERVER_LOG_DIR":/logs "${tpl_mount[@]}" -p "127.0.0.1:$PORT:8080" --entrypoint /app/llama-server "$ref" "${args[@]}" >/dev/null
   rm -f -- "$envf"

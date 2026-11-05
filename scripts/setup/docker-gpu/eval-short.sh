@@ -104,13 +104,19 @@ start_server() { # quant
   local quant=$1 file ref reasoning
   file=$(model_file "$quant"); ref=$(image_ref)
   [[ $MODE == thinking ]] && reasoning=on || reasoning=off
+  { set +x; } 2>/dev/null   # tracing stays off while the key exists in a variable or file (it would land in the xtrace file)
   KEY=$(python3 -c 'import secrets; print(secrets.token_hex(16))')
+  export AIW_EVAL_KEY="$KEY"   # read by eval_short.py; exported here so run_job never expands the key under xtrace
+  local envf="$TMPD/llama.env"
+  write_key_envfile "$envf" KEY
   SERVER_NAME="aiw-eval-$$"
   local args=(-m "/models/$file" -c "$TOTAL_CTX" -np "$NP" -fa on -ctk "$KV" -ctv "$KV" -t "$THREADS"
               --jinja --reasoning "$reasoning" --no-webui --host 0.0.0.0 --port 8080 -fit on -fitt "$FIT_MARGIN_MIB")
   info "llama-server ${args[*]}"
-  d run -d --rm --name "$SERVER_NAME" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp -e LLAMA_API_KEY="$KEY" \
+  d run -d --rm --name "$SERVER_NAME" --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp --env-file "$envf" \
       -v "$MODEL_DIR":/models:ro -p "127.0.0.1:$PORT:8080" --entrypoint /app/llama-server "$ref" "${args[@]}" >/dev/null
+  rm -f -- "$envf"
+  set -x
   local t0=$SECONDS code
   while :; do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:$PORT/health" || true)
@@ -136,7 +142,7 @@ run_job() { # quant
   local offload; offload=$(d logs "$SERVER_NAME" 2>&1 | grep -iE 'offloaded [0-9]+/[0-9]+ layers' | tail -1 | sed 's/^.*\(offloaded\)/\1/' | cut -c1-80 || true)
   info "GPU placement: ${offload:-unknown (see $id.server.log)}"
   local rc=0
-  AIW_EVAL_KEY="$KEY" python3 "$HERE/eval_short.py" --tasks-repo "$EVAL_TASKS_REPO" --tasks-module "$EVAL_TASKS_MODULE" --base-url "http://127.0.0.1:$PORT" \
+  python3 "$HERE/eval_short.py" --tasks-repo "$EVAL_TASKS_REPO" --tasks-module "$EVAL_TASKS_MODULE" --base-url "http://127.0.0.1:$PORT" \
       --out "$RESULTS/$id.jsonl" --label "$id" --mode "$MODE" --seeds "$SEEDS" --parallel "$NP" || rc=$?
   capture_server_log "$id"
   stop_server

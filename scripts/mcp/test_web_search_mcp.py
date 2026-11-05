@@ -192,6 +192,26 @@ class T(unittest.TestCase):
         r = c.send("tools/call", {"name": "web_search", "arguments": "oops"})
         self.assertTrue(r["result"]["isError"]); c.close()
 
+    def test_malformed_requests_get_an_error_or_silence_and_never_kill_the_server(self):
+        c = self.client()
+        for method in ("initialize", "ping", "tools/list", "tools/call"):
+            for bad in ([1, 2], "oops", 5, True, []):
+                r = c.send(method, bad)
+                self.assertEqual(r["error"]["code"], -32602, (method, bad))
+        for raw in ('[1, 2]', '"x"', '5', 'null', '{"jsonrpc": "2.0", "id": 99}'):   # non-dict message / missing method
+            c.p.stdin.write(raw + "\n"); c.p.stdin.flush()
+        self.assertEqual(c.send("ping")["result"], {})          # still alive, and no stray replies queued before this one
+        self.assertIsNone(c.p.poll()); c.close()
+
+    def test_unexpected_exception_in_handle_is_an_internal_error_not_a_crash(self):
+        c = self.client()
+        # a lone surrogate in the tool name is echoed into the error reply, which then fails to encode on stdout
+        c.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                                    "params": {"name": "\ud800"}}) + "\n"); c.p.stdin.flush()
+        r = json.loads(c.p.stdout.readline())
+        self.assertEqual((r["id"], r["error"]["code"]), (7, -32603))
+        self.assertEqual(c.send("ping")["result"], {}); c.close()
+
     def test_long_query_is_cut_and_server_survives_garbage_lines(self):
         c = self.with_key()
         c.p.stdin.write("this is not json\n"); c.p.stdin.flush()

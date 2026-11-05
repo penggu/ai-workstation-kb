@@ -213,7 +213,12 @@ def handle(msg):
         return                                           # a response to something we never sent
     if msg_id is None:
         return                                           # notifications (initialized, cancelled, ...) need no answer
-    params = msg.get("params") or {}
+    params = msg.get("params")
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        reply(msg_id, error={"code": -32602, "message": "invalid params: expected an object"})
+        return
     if method == "initialize":
         asked = params.get("protocolVersion")
         reply(msg_id, {"protocolVersion": asked if asked in SUPPORTED_PROTOCOLS else DEFAULT_PROTOCOL,
@@ -245,9 +250,19 @@ def main():
         if not line:
             continue
         try:
-            handle(json.loads(line))
+            msg = json.loads(line)
         except ValueError:
             reply(None, error={"code": -32700, "message": "parse error"})
+            continue
+        try:
+            handle(msg)
+        except Exception as e:                           # one bad request must not end the server
+            log("unexpected %s" % type(e).__name__)
+            try:
+                reply(msg.get("id") if isinstance(msg, dict) else None,
+                      error={"code": -32603, "message": "internal error"})
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
