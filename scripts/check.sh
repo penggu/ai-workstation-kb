@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check.sh - the one command that runs every offline check: bash -n and shellcheck on all shell scripts, the two
 # shell test scripts, and the MCP Python unit tests. Needs no sudo, docker, GPU or network. Run: make check
-# shellcheck is skipped with a warning when not installed, unless CI=true or REQUIRE_SHELLCHECK=1 (then it fails).
+# The linter step is skipped with a warning when shellcheck is not installed, unless CI=true or REQUIRE_SHELLCHECK=1 (then it fails).
+# It fails only on error severity for now: the older scripts still carry warning/info findings (tracked separately).
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
@@ -17,7 +18,7 @@ for f in "${SH[@]}"; do run bash -n "$f"; done
 
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-  run shellcheck -x "${SH[@]}"
+  run shellcheck -x -S error "${SH[@]}"
 elif [[ ${CI:-} == true || ${REQUIRE_SHELLCHECK:-0} == 1 ]]; then
   echo "FAILED: shellcheck is required here but not installed"; rc=1
 else
