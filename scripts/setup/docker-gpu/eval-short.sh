@@ -212,6 +212,7 @@ PY
 # ------------------------------------------------------------------ driver
 init_logging "evalshort-$cmd"
 # always stop the server, however the script ends; keep the real exit status for _cleanup
+# shellcheck disable=SC2154  # _rc is assigned inside the single-quoted trap string
 trap '_rc=$?; stop_server; _cleanup "$_rc"' EXIT
 trap 'exit 130' INT TERM
 info "command: $cmd quants=${QUANTS[*]} kv=$KV mode=$MODE seeds=$SEEDS parallel=$NP dry-run=$DRY_RUN"

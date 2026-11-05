@@ -9,10 +9,11 @@
 #   sNN_apply  make it so. Only called when check fails. Must be re-runnable.
 #   sNN_undo   revert only what this script changed. Safe to run when nothing was applied.
 
-STEP_IDS=(s01 s02 s03 s04 s05 s06 s07 s08)
-
 DOCKER_PKGS=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
 NVIDIA_PKGS=(nvidia-container-toolkit)
+
+# shellcheck disable=SC2034  # used by setup.sh, which sources this file
+STEP_IDS=(s01 s02 s03 s04 s05 s06 s07 s08)
 DOCKER_KEY=/etc/apt/keyrings/docker.asc
 DOCKER_SRC=/etc/apt/sources.list.d/docker.sources
 NV_KEY=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
@@ -38,8 +39,8 @@ EOF
 }
 
 _wait_docker() { # wait until the daemon answers
-  local i
-  for i in $(seq 1 30); do
+  local _
+  for _ in $(seq 1 30); do
     sudo docker info >/dev/null 2>&1 && return 0
     sleep 1
   done
