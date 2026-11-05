@@ -175,7 +175,10 @@ main() {
   while (($#)); do case "$1" in --dry-run) DRY_RUN=1 ;; --yes|-y) ASSUME_YES=1 ;; -h|--help) usage; exit 0 ;; *) echo "unknown option: $1" >&2; exit 2 ;; esac; shift; done
   case "$cmd" in help|-h|--help) usage; exit 0 ;; esac
   ((EUID == 0)) && { echo "Do not run as root; the script calls sudo itself." >&2; exit 2; }
-  init_logging "sudo-local-llm-$cmd"; trap '_rc=$?; stage_clean; _cleanup "$_rc"' EXIT; info "command: $cmd (dry-run=$DRY_RUN)"; snapshot
+  init_logging "sudo-local-llm-$cmd"
+  # shellcheck disable=SC2154  # _rc is assigned inside the single-quoted trap string
+  trap '_rc=$?; stage_clean; _cleanup "$_rc"' EXIT
+  info "command: $cmd (dry-run=$DRY_RUN)"; snapshot
   case "$cmd" in
     show) CURRENT_STEP=show; gen_ctl "$TMPD/ctl.show"; echo "===== $CTL (as it would be installed) ====="; cat "$TMPD/ctl.show"
           echo; echo "===== $SUDOERS ====="; sudoers_text ;;

@@ -62,10 +62,13 @@ managed_restore T5 "$D"
 t "file created by external tool is removed"    '[[ ! -e $D ]]'
 
 echo "E) write_key_envfile: mode-600 env file, and the key never reaches the xtrace file"
+# shellcheck disable=SC2034  # read by name (indirect expansion) in write_key_envfile, and in the t strings below
 SECRET=s3cr3t-key-0123456789abcdef
 E="$W/llama.env"; TR="$W/xtrace.out"
 exec 8>"$TR"
+# shellcheck disable=SC2034  # read in the t string below
 ( BASH_XTRACEFD=8; set -x; write_key_envfile "$E" SECRET; [[ $- == *x* ]] ) && traced_after=yes || traced_after=no
+# shellcheck disable=SC2034  # read in the t string below
 ( BASH_XTRACEFD=8; set +x; write_key_envfile "$E" SECRET; [[ $- != *x* ]] ) && off_stays_off=yes || off_stays_off=no
 exec 8>&-
 t "file holds LLAMA_API_KEY=<key>"       '[[ $(cat "$E") == "LLAMA_API_KEY=$SECRET" ]]'

@@ -104,7 +104,9 @@ start_server() {
   local ref; ref=$(image_ref)
   ensure_key
   { set +x; } 2>/dev/null
-  local KEY; KEY=$(cat "$KEY_FILE")
+  local KEY
+  # shellcheck disable=SC2034  # KEY is read by name (indirect expansion) in write_key_envfile
+  KEY=$(cat "$KEY_FILE")
   set -x
   mkdir -p "$SERVER_LOG_DIR"
   local srv_log; srv_log="server-$(date +%Y%m%d-%H%M%S).log"
@@ -190,6 +192,7 @@ show_status() {
 }
 
 init_logging "localllm-$cmd"
+# shellcheck disable=SC2154  # _rc is assigned inside the single-quoted trap string
 trap '_rc=$?; _cleanup "$_rc"' EXIT
 info "command: $cmd quant=$QUANT ctx=$CTX kv=$KV reasoning=$REASONING port=$PORT threads=$THREADS dry-run=$DRY_RUN"
 snapshot
@@ -215,7 +218,7 @@ case "$cmd" in
     start_server; api_test; record start localllm started
     echo; ok "ready with reasoning $REASONING, ctx $CTX, KV $KV. In another terminal: ./claude-local.sh"
     ;;
-  test) CURRENT_STEP=test; server_running || die "server is not running"; api_test ;;
+  test) CURRENT_STEP="test"; server_running || die "server is not running"; api_test ;;
   stop)
     CURRENT_STEP=stop
     if ! server_running; then ok "not running"; exit 0; fi

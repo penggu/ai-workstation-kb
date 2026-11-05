@@ -2,7 +2,7 @@
 # check.sh - the one command that runs every offline check: bash -n and shellcheck on all shell scripts, the two
 # shell test scripts, and the MCP Python unit tests. Needs no sudo, docker, GPU or network. Run: make check
 # The linter step is skipped with a warning when shellcheck is not installed, unless CI=true or REQUIRE_SHELLCHECK=1 (then it fails).
-# It fails only on error severity for now: the older scripts still carry warning/info findings (tracked separately).
+# It fails on warning severity and above; the remaining info/style findings are tracked in issue #8.
 # CI pins shellcheck v0.11.0 (see .github/workflows/check.yml); to match it locally without sudo:
 #   uvx --from shellcheck-py==0.11.0.1 shellcheck -x <files>   (ships the same v0.11.0 binary)
 set -uo pipefail
@@ -20,7 +20,7 @@ for f in "${SH[@]}"; do run bash -n "$f"; done
 
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-  run shellcheck -x -P SCRIPTDIR -S error "${SH[@]}"
+  run shellcheck -x -P SCRIPTDIR -S warning "${SH[@]}"
 elif [[ ${CI:-} == true || ${REQUIRE_SHELLCHECK:-0} == 1 ]]; then
   echo "FAILED: shellcheck is required here but not installed"; rc=1
 else

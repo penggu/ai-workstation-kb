@@ -134,6 +134,7 @@ fmt_duration() { printf '%dh%02dm%02ds' $(($1 / 3600)) $(($1 % 3600 / 60)) $(($1
 
 # ------------------------------------------------------------------ driver
 init_logging "suite-$cmd"
+# shellcheck disable=SC2154  # _rc is assigned inside the single-quoted trap string
 trap '_rc=$?; stop_sudo_keepalive; _cleanup "$_rc"' EXIT
 trap 'exit 130' INT TERM
 info "command: $cmd steps=$(selected_steps | tr '\n' ' ') dry-run=$DRY_RUN with-thinking=$WITH_THINKING"
