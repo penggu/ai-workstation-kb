@@ -3,6 +3,8 @@
 # shell test scripts, and the MCP Python unit tests. Needs no sudo, docker, GPU or network. Run: make check
 # The linter step is skipped with a warning when shellcheck is not installed, unless CI=true or REQUIRE_SHELLCHECK=1 (then it fails).
 # It fails only on error severity for now: the older scripts still carry warning/info findings (tracked separately).
+# CI pins shellcheck v0.11.0 (see .github/workflows/check.yml); to match it locally without sudo:
+#   uvx --from shellcheck-py==0.11.0.1 shellcheck -x <files>   (ships the same v0.11.0 binary)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
