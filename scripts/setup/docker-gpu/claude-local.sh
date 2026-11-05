@@ -20,10 +20,10 @@
 # backend.
 #   llama   key file, LOCAL_LLM_PORT (8080), LOCAL_LLM_CTX and LOCAL_LLM_MODEL (must match local-llm.sh), remote tunnel.
 #   strata  github.com/Niko1221/Strata: the model name and context are read from the server itself (LOCAL_LLM_CTX and
-#           LOCAL_LLM_MODEL are ignored). Strata is started without an API key by default, so the token is the constant
-#           "strata-local"; if you start it with a key, put the key in a file and set STRATA_TOKEN_FILE. Local only.
+#           LOCAL_LLM_MODEL are ignored). Without an API key the token is the constant "strata-local". We start Strata with a key
+#           (--api-key-env), keep it in a mode-600 file and set STRATA_TOKEN_FILE. Local only.
 #           Start it e.g.:  strata launch --model q2_0 --data-dir ~/strata-data --context 128k --vision off \
-#                                  --drafting mtp --tune skip --access local --port 8090 --yes --no-tui
+#                                  --drafting mtp --tune skip --access local --port 8090 --api-key-env STRATA_API_KEY --yes --no-tui
 #   Max output tokens default to 16000 (llama) / 4096 (strata); LOCAL_LLM_MAX_OUTPUT overrides both.
 #
 # REMOTE MODE needs the SSH host (an alias from your ~/.ssh/config). It is NOT stored in this repository: set it in
@@ -131,8 +131,7 @@ health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/de
 port_in_use() { local rc=0; curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null || rc=$?; ((rc != 7)); }   # curl exit 7 = connection refused
 
 # Does a Strata server answer on $SPORT? Prints "MODEL CTX" (read from the server, checked against strict patterns).
-# $1 = token to send, or empty to send nothing (the auto probe sends no credential; a token goes in through stdin,
-# never on a command line).
+# $1 = token to send, or empty to send nothing (a token goes in through stdin, never on a command line).
 strata_probe() {
   local body hdr=()
   [[ -z ${1:-} ]] || hdr=(-H @-)
@@ -152,17 +151,23 @@ print(m, c)
 
 STRATA_TOKEN="strata-local"
 [[ -n $STRATA_TOKEN_FILE && -s $STRATA_TOKEN_FILE ]] && STRATA_TOKEN=$(head -c 300 "$STRATA_TOKEN_FILE" | tr -d '\r\n')
+# /health needs no credential, also on a Strata server started with a key, and names the service.
+strata_up() {
+  curl -s --noproxy '*' --max-time 5 "http://127.0.0.1:$SPORT/health" 2>/dev/null |
+    python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
+}
 S_INFO=""
 if [[ $BACKEND == auto ]]; then
-  S_INFO=$(strata_probe "" 2>/dev/null) || S_INFO=""
+  S_UP=0; strata_up && S_UP=1
   L_UP=0; [[ -s $KEY_FILE && $(health "http://127.0.0.1:$PORT") == 200 ]] && L_UP=1
-  if [[ -n $S_INFO && $L_UP == 1 ]]; then
+  if [[ $S_UP == 1 && $L_UP == 1 ]]; then
     echo "both a Strata server (port $SPORT) and the llama.cpp server (port $PORT) answer. Choose one: --backend strata or --backend llama." >&2; exit 1
-  elif [[ -n $S_INFO ]]; then BACKEND=strata
+  elif [[ $S_UP == 1 ]]; then BACKEND=strata
   else BACKEND=llama; fi
-elif [[ $BACKEND == strata ]]; then
+fi
+if [[ $BACKEND == strata ]]; then
   S_INFO=$(strata_probe "$STRATA_TOKEN" 2>/dev/null) || S_INFO=""
-  [[ -n $S_INFO ]] || { echo "Strata does not answer on http://127.0.0.1:$SPORT (or its answer has no model name and context). Start it first (example in the header of this script); if it uses an API key, set STRATA_TOKEN_FILE. For llama.cpp use --backend llama." >&2; exit 1; }
+  [[ -n $S_INFO ]] || { echo "Strata does not answer on http://127.0.0.1:$SPORT, refuses the token (if it was started with an API key, set STRATA_TOKEN_FILE to the file holding it), or its answer has no model name and context. Start it first (example in the header of this script). For llama.cpp use --backend llama." >&2; exit 1; }
 fi
 
 TOKEN=""

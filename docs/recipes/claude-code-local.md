@@ -29,12 +29,29 @@ cd <your project>
 | | llama.cpp | Strata |
 |---|---|---|
 | Model name, context | fixed by `local-llm.sh` (`local-qwen`, 98304) | read from the server (`/v1/models`) |
-| API key | generated key file | none by default: the constant token `strata-local`; if you start Strata with a key, put it in a file and set `STRATA_TOKEN_FILE` |
+| API key | generated key file | we run it **with** a key (see below); without one it accepts any request and the script sends the constant `strata-local` |
 | Max output tokens | 16000 | 4096 (`strata connect claude-code` recommends this); `LOCAL_LLM_MAX_OUTPUT` overrides both |
 | Thinking | fixed at server start | on by default; the server honours the Anthropic `thinking` field per request (tested 2026-11-04 with `thinking: {type: "disabled"}`: 196 output tokens instead of 991 for the same prompt) |
 | From another machine | yes (SSH tunnel) | not through this script (local only) |
 
-The probe in `auto` sends no credential; the llama.cpp key is sent only to the llama.cpp backend, a Strata token only to Strata. Tested with stand-in servers (both answering, either alone, wrong port, token file, no credential on the probe) and with a real Strata server by `--dry-run`. **Not yet done: a real Claude Code coding session on Strata.** Strata's own `strata connect claude-code --check` (one prompt, one tool call) passed. We did not use its `--write` option because it merges the settings into `~/.claude/settings.json`, which would redirect every Claude Code session.
+`auto` finds Strata through `/health`, which answers without a credential and names the service, so it also finds a Strata that was started with a key; the llama.cpp key is sent only to the llama.cpp backend, a Strata token only to Strata. Tested with stand-in servers (both answering, either alone, wrong port, token file) and against a real keyed Strata (`--dry-run`, then a real `-p` prompt that returned the answer). **Not yet done: a longer Claude Code coding session with file edits on Strata.** Strata's own `strata connect claude-code --check` (one prompt, one tool call) passed. We did not use its `--write` option because it merges the settings into `~/.claude/settings.json`, which would redirect every Claude Code session.
+
+#### Strata: API key and network (observed 2026-11-05)
+
+Details and sources: [research note](../research/strata-telemetry-and-api-key.md).
+
+- **Decision: run Strata with an API key.** Without one, any local process can use the GPU. Start it with `--api-key-env` (the key comes from a mode-600 file, `~/.local/state/ai-workstation/strata/api-key`, and goes through the environment, not the command line) and give the same file to the client with `STRATA_TOKEN_FILE`.
+- **Observed on `--access local --api-key-env`, Strata 0.1.56:** `/v1/models`, `/status` and `POST /v1/messages` without a key: HTTP 401; wrong key: 401; right key as `Authorization: Bearer` or `x-api-key`: 200. `/health` stays open and reports `"api_key": true`. From reading the source (not tested): the key cannot be changed on a running server, so a new key means a restart (the model took about 5 minutes to load).
+- **Network, observed:** during 2 minutes of idling and of two requests, the three Strata processes (terminal, serve, engine) had no non-loopback connection (`ss -tnup`, sampled every 5 s, plus a final per-process check). No destinations were recorded because there was nothing to record. This is a sample, not a proof: no packet capture, only one window, and three sockets in the machine-wide list had no visible owner, so they are not attributed. Reading the code (inference, not observation): Upstream's "no telemetry" statement matches it (no analytics code); the only outbound paths found are install/update downloads, an optional daily signed-feed check (`STRATA_UPDATE_CHECK=0` turns it off), and request-driven image URLs or MCP calls.
+- **How to start it with a key** (key file created once, mode 600):
+  ```bash
+  f=~/.local/state/ai-workstation/strata/api-key
+  ( umask 077; python3 -I -c 'import secrets;print("sk-strata-"+secrets.token_urlsafe(32))' > "$f" )
+  STRATA_API_KEY=$(cat "$f") strata launch --model q2_0 --family qwen --data-dir ~/strata-data --context 128k \
+    --vision off --drafting mtp --tune skip --access local --port 8090 --api-key-env STRATA_API_KEY --yes --no-tui
+  export STRATA_TOKEN_FILE=$f   # for claude-local.sh
+  ```
+- **Not verified:** a long idle run, a packet capture, the engine binary itself.
 
 ### From another machine (for example a Mac)
 
