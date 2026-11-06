@@ -75,13 +75,13 @@ export FAKE_SSH_LOG="$T/ssh.log" FAKE_SERVER="$T/fake_server.py" FAKE_SERVER_LOG
 export FAKE_STRATA_PORT=$SP FAKE_LLAMA_PORT=$LP FAKE_STRATA_KEY=$KEY FAKE_LLAMA_KEY=$LKEY
 
 run() {   # run <FAKE_REMOTE> args...  -> sets OUT, RC; clean slate per call
-  local remote=$1; shift
+  local remote=$1 t0=$SECONDS; shift
   : >"$FAKE_SSH_LOG"; : >"$FAKE_SERVER_LOG"; rm -f "$FAKE_CLAUDE_OUT"
   OUT=$(env HOME="$T/home" PATH="$T/bin:$PATH" AIW_PRIVATE_ENV="$T/none.env" LOCAL_LLM_NO_SEARCH=1 \
         LOCAL_LLM_SSH_HOST=gpu FAKE_REMOTE="$remote" STRATA_PORT=$SP STRATA_TUNNEL_PORT=$STP \
         LOCAL_LLM_PORT=$LP LOCAL_LLM_TUNNEL_PORT=$LTP LOCAL_LLM_KEY_FILE="$T/home/nokey" \
         "${EXTRA_ENV[@]}" bash "$HERE/claude-local.sh" "$@" 2>&1); RC=$?
-  [[ -z ${TEST_DEBUG:-} ]] || { echo "--- run $remote $*: rc=$RC"; echo "$OUT" | cut -c1-300; }
+  [[ -z ${TEST_DEBUG:-} ]] || { echo "--- run $remote $*: rc=$RC, $((SECONDS - t0)) s"; echo "$OUT" | cut -c1-300; }
 }
 EXTRA_ENV=(X=1)
 not_listening() { ! listening "$1"; }
