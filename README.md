@@ -12,7 +12,7 @@ Everything here is a snapshot of one machine on the date in each file. Check "La
 
 ## Checks
 
-`make check` (or `bash scripts/check.sh`) runs everything offline: `bash -n` and `shellcheck` on every shell script, `test-lib.sh` and `test-aiw-llm-ctl.sh` (with `AIW_TEST_MODE=1`), and the MCP unit tests (`python3 -I -m unittest`). It needs no sudo, docker or GPU. If `shellcheck` is missing it is skipped with a warning locally; set `REQUIRE_SHELLCHECK=1` to make that an error. GitHub Actions runs it on every push and PR.
+`make check` (or `bash scripts/check.sh`) runs everything offline: `bash -n` and `shellcheck` on every shell script, `test-lib.sh` and `test-aiw-llm-ctl.sh` (with `AIW_TEST_MODE=1`), and the MCP unit tests (`python3 -I -m unittest`). It needs no sudo, docker or GPU. The two `docker-gpu` shell tests assume GNU coreutils and bash >= 4.4 (i.e. WSL Ubuntu); on macOS they are skipped with a note, since macOS ships bash 3.2 and a BSD `stat`/`realpath` — CI (ubuntu-latest) still runs them. If `shellcheck` is missing it is skipped with a warning locally; set `REQUIRE_SHELLCHECK=1` to make that an error. GitHub Actions runs it on every push and PR.
 
 ## Licence
 
