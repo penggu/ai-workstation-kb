@@ -13,7 +13,7 @@ bad() { fail=$((fail+1)); echo "FAIL: $*"; }
 expect() { local what=$1; shift; if "$@"; then ok; else bad "$what"; fi; }   # expect "text" cmd args...
 
 mkdir -p "$T/bin" "$T/home"
-listening() { local t; t=$(curl -s -o /dev/null --max-time 2 -w '%{time_connect}' "http://127.0.0.1:$1/" 2>/dev/null) || true; [[ -n ${t//[0.,]/} ]]; }   # same test as the script's port_in_use
+listening() { local t; t=$(curl -s -o /dev/null --connect-timeout 1 --max-time 2 -w '%{time_connect}' "http://127.0.0.1:$1/" 2>/dev/null) || true; [[ -n ${t//[0.,]/} ]]; }   # same test as the script's port_in_use
 KEY="sk-strata-TESTKEY0123456789"
 LKEY="llama-TESTKEY0123456789"
 
