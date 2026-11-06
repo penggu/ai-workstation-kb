@@ -3,6 +3,7 @@
 # It builds a test copy of the controller from the template (placeholders filled with temp paths, the two root/sudo
 # guards and the runuser call replaced, docker replaced by a stub that records what it was asked to run). The
 # shipped template is not changed. Run: ./test-aiw-llm-ctl.sh
+# shellcheck disable=SC2015  # file-wide on purpose: `[[ test ]] && ok || bad`, where ok and bad only count, so bad runs only when the test is false
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 T=$(mktemp -d "${TMPDIR:-/tmp}/aiw-ctl-test.XXXXXX"); trap 'rm -rf -- "$T"' EXIT

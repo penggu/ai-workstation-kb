@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test-lib.sh - unit tests for the managed-file undo logic. Needs no root, touches no system files.
 #   ./test-lib.sh        (exit 0 = all passed)
+# shellcheck disable=SC2016  # file-wide on purpose: the command strings given to `t` are single-quoted and evaluated later
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

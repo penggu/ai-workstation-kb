@@ -2,6 +2,7 @@
 # test-claude-local.sh - offline tests of claude-local.sh's backend choice and its remote (SSH tunnel) mode for Strata.
 # Needs no GPU, no real ssh and no real claude: a stand-in `ssh` serves the "tunnel" with a small fake server, a
 # stand-in `claude` records what it was given. The script under test is not changed. Run: ./test-claude-local.sh
+# shellcheck disable=SC2016  # file-wide on purpose: the strings given to `bash -c` are single-quoted, $0 and $1 expand inside
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 T=$(mktemp -d "${TMPDIR:-/tmp}/claude-local-test.XXXXXX")

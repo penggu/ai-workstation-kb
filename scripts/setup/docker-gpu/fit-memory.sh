@@ -95,6 +95,7 @@ run_job() { # quant kv
   [[ -f $MODEL_DIR/$file ]] || die "missing model file: $MODEL_DIR/$file"
   info "$file, KV $kv, contexts: ${CONTEXTS[*]}"
   # One container per job. Positional args: FITBIN FILE KV CTX... ; each context prints a "### ctx" block.
+  # shellcheck disable=SC2016  # the script runs inside the container, where $1 and $c must expand, not here
   local script='bin=$1; f=$2; kv=$3; shift 3
 for c in "$@"; do
   echo "### ctx=$c"

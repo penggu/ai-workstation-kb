@@ -248,7 +248,9 @@ case "$cmd" in
   apply)
     ((${#QUANTS[@]})) || die "no quantisations found in $MODEL_DIR besides the reference"
     if ((DRY_RUN)); then
+      # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
       base_done && info "[dry-run] reference logits already saved" || info "[dry-run] would build the corpus and save the $REF_QUANT reference (~$((EXPECTED_BYTES / 1073741824)) GiB)"
+      # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
       for q in "${QUANTS[@]}"; do job_done "$q" && info "[dry-run] $q already done" || info "[dry-run] would score $q"; done
     else
       preflight

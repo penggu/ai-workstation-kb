@@ -223,6 +223,7 @@ show_status() {
   local q
   printf '%-34s %s\n' JOB STATE
   for q in "${QUANTS[@]}"; do
+    # shellcheck disable=SC2015  # B is echo, it cannot fail, so the group runs only when job_done is false
     printf '%-34s %s\n' "$(job_id "$q")" "$(job_done "$q" && echo DONE || { [[ -s $RESULTS/$(job_id "$q").jsonl ]] && echo PARTIAL || echo PENDING; })"
   done
 }

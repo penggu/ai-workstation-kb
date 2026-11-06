@@ -154,12 +154,16 @@ r2_undo() { root_restore r2 "$SUDOERS"; sudo visudo -c || warn "visudo reports a
 
 selftest() { # never starts or stops anything; bad requests must be refused before docker is reached
   local out rc
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   out=$(sudo -k -n "$CTL" running 2>&1) && ok "no-password '$CTL running' works" || { err "controller did not run without a password: $out"; return 1; }
   rc=0; out=$(sudo -k -n "$CTL" start --model-file ../x.gguf --ctx 4096 --kv f16 --reasoning on --threads 1 --port 8080 --log-name server-20260101-000000.log 2>&1) || rc=$?
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   [[ $rc -eq 2 && $out == *"--model-file"* ]] && ok "a path in --model-file is refused" || { err "bad --model-file was not refused (rc=$rc): $out"; return 1; }
   rc=0; out=$(sudo -k -n "$CTL" start --bogus 2>&1) || rc=$?
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   [[ $rc -eq 2 && $out == *"unknown option"* ]] && ok "an unknown option is refused" || { err "unknown option was not refused (rc=$rc): $out"; return 1; }
   local rl; rl=$(sysctl -n net.ipv4.conf.all.route_localnet 2>/dev/null || echo ?)
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   [[ $rl == 1 ]] && warn "net.ipv4.conf.all.route_localnet=1: with some Docker versions a port published on 127.0.0.1 is reachable from the LAN. Check the API from another machine, and update Docker if it answers." \
                  || ok "route_localnet is not set ($rl): a loopback-published port stays on the loopback"
   # `sudo -l` only says whether a command is ALLOWED (sudo-group members may run anything after a password), not whether
