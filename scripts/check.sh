@@ -13,7 +13,9 @@ step() { printf '\n== %s\n' "$*"; }
 run()  { "$@" || { echo "FAILED: $*"; rc=1; }; }
 
 # Shell scripts: every tracked *.sh plus the controller template.
-mapfile -t SH < <(git ls-files '*.sh' 'scripts/setup/docker-gpu/aiw-llm-ctl.template')
+# while-read instead of mapfile: macOS ships bash 3.2, which has no mapfile (added in bash 4).
+SH=()
+while IFS= read -r f; do SH+=("$f"); done < <(git ls-files '*.sh' 'scripts/setup/docker-gpu/aiw-llm-ctl.template')
 
 step "bash -n (${#SH[@]} files)"
 for f in "${SH[@]}"; do run bash -n "$f"; done
@@ -28,8 +30,13 @@ else
 fi
 
 step "shell tests"
-run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-lib.sh
-run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-aiw-llm-ctl.sh
+if [[ "$(uname -s)" == Linux ]]; then
+  run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-lib.sh
+  run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-aiw-llm-ctl.sh
+else
+  echo "NOTE: test-lib.sh / test-aiw-llm-ctl.sh target WSL Ubuntu (GNU stat/realpath, bash >= 4.4);"
+  echo "      skipped on $(uname -s). CI (ubuntu-latest) runs them. test-claude-local.sh still runs."
+fi
 run bash scripts/setup/docker-gpu/test-claude-local.sh
 
 step "python tests (scripts/mcp)"

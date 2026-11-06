@@ -197,7 +197,8 @@ managed_install() {
   fi
   track_original "$step" "$dest"
   sudo mkdir -p "$(dirname "$dest")"
-  sudo install -m "$mode" "${OWNER_ARGS[@]}" "$src" "$dest"
+  # The + guard keeps bash 3.2 happy with an empty array under set -u (fixed only in bash 4.4).
+  sudo install -m "$mode" ${OWNER_ARGS[@]+"${OWNER_ARGS[@]}"} "$src" "$dest"
   info "installed: $dest"
 }
 
@@ -207,7 +208,7 @@ managed_restore() {
   bk=$(_backup_path "$step" "$dest"); cr=$(_created_path "$step" "$dest")
   if [[ -e $bk ]]; then
     mode=$(stat -c %a "$bk")
-    sudo install -m "$mode" "${OWNER_ARGS[@]}" "$bk" "$dest"
+    sudo install -m "$mode" ${OWNER_ARGS[@]+"${OWNER_ARGS[@]}"} "$bk" "$dest"
     rm -f "$bk"
     info "restored original: $dest"
   elif [[ -e $cr ]]; then
