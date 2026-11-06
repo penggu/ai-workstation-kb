@@ -51,6 +51,14 @@ Details and sources: [research note](../research/strata-telemetry-and-api-key.md
     --vision off --drafting mtp --tune skip --access local --port 8090 --api-key-env STRATA_API_KEY --yes --no-tui
   export STRATA_TOKEN_FILE=$f   # for claude-local.sh
   ```
+- **Saving the choices as a preset:** add `--save-preset "q2_0-128k-local"` to the launch command above. Later:
+  ```bash
+  strata launch --list-presets
+  strata launch --preset "q2_0-128k-local" --restart --yes --no-tui   # start (or restart) with the saved choices
+  strata launch --preset "q2_0-128k-local" --show-key                  # print its key
+  strata launch --delete-preset "q2_0-128k-local"
+  ```
+  The preset stores the model, context, vision, drafting, port and access mode, **and the API key** (checked 2026-11-05: `--show-key` prints it, and the saved run config `~/.local/state/strata/launch/q2_0-128k-local.json` is mode 600). So `--preset` needs no `STRATA_API_KEY`, but the key now exists in that file as well as in our key file; if you replace one, replace both (and `STRATA_TOKEN_FILE` must point at the key the server really uses). Other flags on the same command override the preset for that start only. After starting, `"images"` in `/health` shows whether vision is on (`false` = off).
 - **Not verified:** a long idle run, a packet capture, the engine binary itself.
 
 ### From another machine (for example a Mac)
