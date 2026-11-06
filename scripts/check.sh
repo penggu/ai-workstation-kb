@@ -30,6 +30,7 @@ fi
 step "shell tests"
 run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-lib.sh
 run env AIW_TEST_MODE=1 bash scripts/setup/docker-gpu/test-aiw-llm-ctl.sh
+run bash scripts/setup/docker-gpu/test-claude-local.sh
 
 step "python tests (scripts/mcp)"
 run python3 -I -m unittest discover -s scripts/mcp -p 'test_*.py'

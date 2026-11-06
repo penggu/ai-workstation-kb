@@ -32,7 +32,7 @@ cd <your project>
 | API key | generated key file | we run it **with** a key (see below); without one it accepts any request and the script sends the constant `strata-local` |
 | Max output tokens | 16000 | 4096 (`strata connect claude-code` recommends this); `LOCAL_LLM_MAX_OUTPUT` overrides both |
 | Thinking | fixed at server start | on by default; the server honours the Anthropic `thinking` field per request (tested 2026-11-04 with `thinking: {type: "disabled"}`: 196 output tokens instead of 991 for the same prompt) |
-| From another machine | yes (SSH tunnel) | not through this script (local only) |
+| From another machine | yes (SSH tunnel) | yes (SSH tunnel, tested only with stand-ins so far, see below) |
 
 `auto` finds Strata through `/health`, which answers without a credential and names the service, so it also finds a Strata that was started with a key; the llama.cpp key is sent only to the llama.cpp backend, a Strata token only to Strata. Tested with stand-in servers (both answering, either alone, wrong port, token file) and against a real keyed Strata (`--dry-run`, then a real `-p` prompt that returned the answer). **Not yet done: a longer Claude Code coding session with file edits on Strata.** Strata's own `strata connect claude-code --check` (one prompt, one tool call) passed. We did not use its `--write` option because it merges the settings into `~/.claude/settings.json`, which would redirect every Claude Code session.
 
@@ -68,6 +68,7 @@ echo 'LOCAL_LLM_SSH_HOST=<your-ssh-alias>' > ~/.config/ai-workstation/private.en
 - The server must already be running (`./local-llm.sh start` on the GPU machine; starting it needs sudo, so it cannot be done remotely by this script).
 - Needs `ssh` key login (it runs with `BatchMode`, so it never stops at a prompt), `curl`, `python3` and `claude` on the other machine. It is written to run on macOS's bash 3.2.
 - If something already listens on the tunnel port, the script refuses to send the key to it. `--reuse-tunnel` overrides that when the listener is your own tunnel.
+- **Strata from another machine** (`--backend strata`, or `auto`, which asks the GPU machine over ssh what runs there): the same flow, with local tunnel port 18090 (`STRATA_TUNNEL_PORT`) to the GPU machine's 8090 (`STRATA_PORT`). The key is read over ssh from `~/.local/state/ai-workstation/strata/api-key` on the GPU machine (`STRATA_REMOTE_KEY_FILE`); if that file does not exist the constant token is used, which is right for a Strata started without a key. The model name and context come from Strata through the tunnel. **Tested only with a stand-in `ssh`, server and `claude` (`scripts/setup/docker-gpu/test-claude-local.sh`, part of `make check`); not yet on a real Mac (issue #24).** If both servers run on the GPU machine, `auto` stops and asks you to choose with `--backend`.
 - The server has one slot: two sessions at the same time queue behind each other.
 - Arguments the script does not know go to `claude`: `./claude-local.sh --resume`.
 - Tested on Linux with a stand-in `ssh`, server and `claude`: both modes, the tunnel closing after the session, the exit code passing through, the key absent from every command line.

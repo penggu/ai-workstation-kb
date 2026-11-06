@@ -19,9 +19,9 @@
 # and asks you to choose with --backend. `auto` recognises Strata through /health, which needs no credential (also on a Strata started with a key); the llama.cpp
 # key is only sent to the llama.cpp backend, the Strata token only to Strata.
 #   llama   key file, LOCAL_LLM_PORT (8080), LOCAL_LLM_CTX and LOCAL_LLM_MODEL (must match local-llm.sh), remote tunnel.
-#   strata  github.com/Niko1221/Strata: the model name and context are read from the server itself (LOCAL_LLM_CTX and
+#   strata  github.com/Niko1221/Strata (here, or on the GPU machine through an SSH tunnel, see REMOTE MODE): the model name and context are read from the server itself (LOCAL_LLM_CTX and
 #           LOCAL_LLM_MODEL are ignored). Without an API key the token is the constant "strata-local". We start Strata with a key
-#           (--api-key-env), keep it in a mode-600 file and set STRATA_TOKEN_FILE. Local only.
+#           (--api-key-env), keep it in a mode-600 file and set STRATA_TOKEN_FILE.
 #           Start it e.g.:  strata launch --model q2_0 --data-dir ~/strata-data --context 128k --vision off \
 #                                  --drafting mtp --tune skip --access local --port 8090 --api-key-env STRATA_API_KEY --yes --no-tui
 #   Max output tokens default to 16000 (llama) / 4096 (strata); LOCAL_LLM_MAX_OUTPUT overrides both.
@@ -30,6 +30,10 @@
 # the environment, or in a private file outside any repository (default ~/.config/ai-workstation/private.env,
 # override with AIW_PRIVATE_ENV), for example:
 #     LOCAL_LLM_SSH_HOST=my-gpu-host
+# Remote mode works for both backends. With --backend strata (or auto, which asks the GPU machine over ssh what runs
+# there) it tunnels STRATA_TUNNEL_PORT (18090) to the GPU machine's STRATA_PORT (8090) and reads the key from
+# STRATA_REMOTE_KEY_FILE there (default ~/.local/state/ai-workstation/strata/api-key; without a file the constant
+# token is used; STRATA_TOKEN_FILE on this machine overrides). Not yet confirmed on a real Mac, see issue #24.
 # Other settings (all optional):
 #   LOCAL_LLM_PORT (8080, the server's port on the GPU machine)   LOCAL_LLM_TUNNEL_PORT (18080, local end of the tunnel)
 #   LOCAL_LLM_CTX (98304; must equal the server's --ctx)  LOCAL_LLM_MAX_OUTPUT (16000)  LOCAL_LLM_MODEL (local-qwen)
@@ -55,10 +59,12 @@ CTX=${LOCAL_LLM_CTX:-98304}
 MAXOUT=${LOCAL_LLM_MAX_OUTPUT:-}      # default depends on the backend, set below
 MODEL=${LOCAL_LLM_MODEL:-local-qwen}
 BACKEND=${LOCAL_LLM_BACKEND:-auto}
-SPORT=${STRATA_PORT:-8090}
+SPORT=${STRATA_PORT:-8090}                      # Strata's port on the machine that runs it
+STUNNEL_PORT=${STRATA_TUNNEL_PORT:-18090}       # local end of the tunnel to a Strata on another machine
 STRATA_TOKEN_FILE=${STRATA_TOKEN_FILE:-}
 KEY_FILE=${LOCAL_LLM_KEY_FILE:-$HOME/.local/state/ai-workstation/local-llm/api-key}
 REMOTE_KEY_FILE=${LOCAL_LLM_REMOTE_KEY_FILE:-'~/.local/state/ai-workstation/local-llm/api-key'}   # expanded by the remote shell
+STRATA_REMOTE_KEY_FILE=${STRATA_REMOTE_KEY_FILE:-'~/.local/state/ai-workstation/strata/api-key'}   # same, for Strata
 
 AIW_PRIVATE_ENV=${AIW_PRIVATE_ENV:-$HOME/.config/ai-workstation/private.env}
 # shellcheck disable=SC1090
@@ -81,7 +87,10 @@ while (($#)); do
   shift
 done
 case "$BACKEND" in auto|llama|strata) ;; *) echo "--backend must be llama, strata or auto (got: $BACKEND)" >&2; exit 2 ;; esac
-[[ $SPORT =~ ^[0-9]{1,5}$ ]] || { echo "STRATA_PORT must be a number" >&2; exit 2; }
+# these end up in a command run by the remote shell (ports; key file paths are left unquoted so ~ expands there),
+# so they must be plain numbers / plain paths
+for _v in PORT SPORT STUNNEL_PORT TUNNEL_PORT; do [[ ${!_v} =~ ^[0-9]{1,5}$ ]] || { echo "$_v must be a port number (got: ${!_v})" >&2; exit 2; }; done
+for _v in REMOTE_KEY_FILE STRATA_REMOTE_KEY_FILE; do [[ ${!_v} =~ ^[~A-Za-z0-9_./-]+$ ]] || { echo "$_v may only contain letters, digits and ~ _ . / - (got: ${!_v})" >&2; exit 2; }; done
 [[ -z $MAXOUT || $MAXOUT =~ ^[0-9]{1,6}$ ]] || { echo "LOCAL_LLM_MAX_OUTPUT must be a number" >&2; exit 2; }
 if ((${#CLAUDE_ARGS[@]})); then
   for a in "${CLAUDE_ARGS[@]}"; do
@@ -128,13 +137,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/dev/null || true; }
-port_in_use() { local rc=0; curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null || rc=$?; ((rc != 7)); }   # curl exit 7 = connection refused
+# Does something accept connections on 127.0.0.1:$1? A connection that is refused, and also one that is silently dropped
+# (some firewalls and sandboxes do that), never connects, so curl reports time_connect 0.
+port_in_use() { local t; t=$(curl -s -o /dev/null --max-time 2 -w '%{time_connect}' "http://127.0.0.1:$1/" 2>/dev/null) || true; [[ -n ${t//[0.,]/} ]]; }
 
 # Does a Strata server answer on $SPORT? Prints "MODEL CTX" (read from the server, checked against strict patterns).
-# $1 = the token; it goes in through stdin, never on a command line.
+# $1 = the token; it goes in through stdin, never on a command line. $2 = the port to ask.
 strata_probe() {
   local body
-  body=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --noproxy '*' --max-time 5 -H @- "http://127.0.0.1:$SPORT/v1/models" 2>/dev/null) || return 1
+  body=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --noproxy '*' --max-time 5 -H @- "http://127.0.0.1:$2/v1/models" 2>/dev/null) || return 1
   printf '%s' "$body" | python3 -I -c '
 import json, re, sys
 try:
@@ -150,29 +161,83 @@ print(m, c)
 
 STRATA_TOKEN="strata-local"
 [[ -n $STRATA_TOKEN_FILE && -s $STRATA_TOKEN_FILE ]] && STRATA_TOKEN=$(head -c 300 "$STRATA_TOKEN_FILE" | tr -d '\r\n')
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
 # /health needs no credential, also on a Strata server started with a key, and names the service.
 strata_up() {
   curl -s --noproxy '*' --max-time 5 "http://127.0.0.1:$SPORT/health" 2>/dev/null |
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
 }
-S_INFO=""
+# The same two checks on the GPU machine, through ssh (remote mode): no tunnel is needed to find out what runs there.
+remote_strata_up() {
+  ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s --max-time 5 http://127.0.0.1:$SPORT/health" 2>/dev/null |
+    python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
+}
+remote_llama_up() { [[ $(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:$PORT/health" 2>/dev/null) == 200 ]]; }
+
+STRATA_REMOTE=0; REMOTE_CHECKED=0
 if [[ $BACKEND == auto ]]; then
   S_UP=0; strata_up && S_UP=1
   L_UP=0; [[ -s $KEY_FILE && $(health "http://127.0.0.1:$PORT") == 200 ]] && L_UP=1
   if [[ $S_UP == 1 && $L_UP == 1 ]]; then
     echo "both a Strata server (port $SPORT) and the llama.cpp server (port $PORT) answer. Choose one: --backend strata or --backend llama." >&2; exit 1
   elif [[ $S_UP == 1 ]]; then BACKEND=strata
-  else BACKEND=llama; fi
+  elif [[ -s $KEY_FILE || -z $SSH_HOST ]]; then BACKEND=llama     # this is the GPU machine (or nothing is configured)
+  else
+    # another machine: ask the GPU machine which server runs there
+    RS=0; remote_strata_up && RS=1
+    RL=0; remote_llama_up && RL=1
+    if [[ $RS == 1 && $RL == 1 ]]; then
+      echo "both a Strata server (port $SPORT) and the llama.cpp server (port $PORT) answer on the GPU machine. Choose one: --backend strata or --backend llama." >&2; exit 1
+    elif [[ $RS == 1 ]]; then BACKEND=strata; STRATA_REMOTE=1; REMOTE_CHECKED=1
+    else BACKEND=llama; fi
+  fi
 fi
+
+# open_tunnel LOCAL_PORT REMOTE_PORT: ssh -N -L in the background (TUNNEL_PID); refuses to use a port someone else holds.
+open_tunnel() {
+  if port_in_use "$1"; then
+    if ((REUSE)); then echo "reusing whatever listens on 127.0.0.1:$1 (--reuse-tunnel)" >&2; return 0; fi
+    echo "127.0.0.1:$1 is already in use. Not sending the API key to an unknown listener. Pick another port (LOCAL_LLM_TUNNEL_PORT, STRATA_TUNNEL_PORT), or pass --reuse-tunnel if it is your own tunnel." >&2; exit 1
+  fi
+  ssh "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -N -L "127.0.0.1:$1:127.0.0.1:$2" "$SSH_HOST" &
+  TUNNEL_PID=$!
+  for _ in $(seq 1 20); do
+    kill -0 "$TUNNEL_PID" 2>/dev/null || { echo "the ssh tunnel exited; check 'ssh $SSH_HOST' works from this machine" >&2; TUNNEL_PID=""; exit 1; }
+    [[ $(health "http://127.0.0.1:$1") == 200 ]] && break
+    sleep 1
+  done
+}
+
+S_INFO=""
+S_BASE_PORT=$SPORT
 if [[ $BACKEND == strata ]]; then
-  S_INFO=$(strata_probe "$STRATA_TOKEN" 2>/dev/null) || S_INFO=""
-  [[ -n $S_INFO ]] || { echo "Strata does not answer on http://127.0.0.1:$SPORT, refuses the token (if it was started with an API key, set STRATA_TOKEN_FILE to the file holding it), or its answer has no model name and context. Start it first (example in the header of this script). For llama.cpp use --backend llama." >&2; exit 1; }
+  if ((!STRATA_REMOTE)) && [[ -n $SSH_HOST ]] && ! strata_up; then
+    command -v ssh >/dev/null || { echo "ssh is required for remote mode" >&2; exit 1; }
+    STRATA_REMOTE=1
+  fi
+  if ((STRATA_REMOTE)); then
+    ((REMOTE_CHECKED)) || remote_strata_up || { echo "no Strata server answers on port $SPORT of '$SSH_HOST' (is it running there? is ssh key login working?). Not on this machine either (port $SPORT). For llama.cpp use --backend llama." >&2; exit 1; }
+    # remote Strata: the token is the key file on the GPU machine (or STRATA_TOKEN_FILE here); without one, Strata
+    # was started without a key and the constant token is right.
+    if [[ -z $STRATA_TOKEN_FILE ]]; then
+      # exit 255 = ssh itself failed; exit 1 = no key file there (Strata runs without a key): the constant token stays
+      rc=0; RT=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "test -e $STRATA_REMOTE_KEY_FILE && cat $STRATA_REMOTE_KEY_FILE" 2>/dev/null) || rc=$?
+      ((rc != 255)) || { echo "could not read the Strata key over ssh from '$SSH_HOST' (is ssh key login working?)" >&2; exit 1; }
+      [[ -z $RT ]] || STRATA_TOKEN=$RT
+      unset RT rc
+    fi
+    open_tunnel "$STUNNEL_PORT" "$SPORT"
+    S_BASE_PORT=$STUNNEL_PORT
+  fi
+  S_INFO=$(strata_probe "$STRATA_TOKEN" "$S_BASE_PORT" 2>/dev/null) || S_INFO=""
+  [[ -n $S_INFO ]] || { echo "Strata does not answer on http://127.0.0.1:$S_BASE_PORT, refuses the token (if it was started with an API key, set STRATA_TOKEN_FILE to the file holding it), or its answer has no model name and context. Start it first (example in the header of this script). For llama.cpp use --backend llama." >&2; exit 1; }
 fi
 
 TOKEN=""
 if [[ $BACKEND == strata ]]; then
-  # ---- Strata: local only; model name and context come from the server
-  MODE=local; BASE="http://127.0.0.1:$SPORT"
+  # ---- Strata: model name and context come from the server (here, or through the tunnel to the GPU machine)
+  MODE=local; ((!STRATA_REMOTE)) || MODE=remote
+  BASE="http://127.0.0.1:$S_BASE_PORT"
   read -r MODEL CTX <<<"$S_INFO"
   TOKEN=$STRATA_TOKEN
   [[ -n $MAXOUT ]] || MAXOUT=4096
@@ -185,22 +250,10 @@ else
   MODE=remote; BASE="http://127.0.0.1:$TUNNEL_PORT"
   command -v ssh >/dev/null || { echo "ssh is required for remote mode" >&2; exit 1; }
   [[ -n $SSH_HOST ]] || { echo "no API key at $KEY_FILE, so this looks like a remote machine, but LOCAL_LLM_SSH_HOST is not set (see the header of this script)" >&2; exit 1; }
-  SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
   # The key comes over SSH into a variable; it appears in no argument list.
   TOKEN=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "cat $REMOTE_KEY_FILE" 2>/dev/null) || TOKEN=""
   [[ -n $TOKEN ]] || { echo "could not read the API key over ssh from '$SSH_HOST' (is ssh key login working, and is local-llm.sh start done on that machine?)" >&2; exit 1; }
-  if port_in_use "$TUNNEL_PORT"; then
-    if ((REUSE)); then echo "reusing whatever listens on 127.0.0.1:$TUNNEL_PORT (--reuse-tunnel)" >&2
-    else echo "127.0.0.1:$TUNNEL_PORT is already in use. Not sending the API key to an unknown listener. Pick another port (LOCAL_LLM_TUNNEL_PORT), or pass --reuse-tunnel if it is your own tunnel." >&2; exit 1; fi
-  else
-    ssh "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -N -L "127.0.0.1:$TUNNEL_PORT:127.0.0.1:$PORT" "$SSH_HOST" &
-    TUNNEL_PID=$!
-    for _ in $(seq 1 20); do
-      kill -0 "$TUNNEL_PID" 2>/dev/null || { echo "the ssh tunnel exited; check 'ssh $SSH_HOST' works from this machine" >&2; TUNNEL_PID=""; exit 1; }
-      [[ $(health "$BASE") == 200 ]] && break
-      sleep 1
-    done
-  fi
+  open_tunnel "$TUNNEL_PORT" "$PORT"
 fi
 
 [[ -n $MAXOUT ]] || MAXOUT=16000
