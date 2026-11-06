@@ -164,6 +164,7 @@ api_test() {
         "$url/v1/messages" || true)
   set -x
   info "POST /v1/messages -> $(printf '%s' "$out" | cut -c1-300)"
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("type")=="message", d' "$out" \
     && ok "/v1/messages answers in the Anthropic format" || die "/v1/messages did not return an Anthropic message"
   { set +x; } 2>/dev/null
@@ -176,6 +177,7 @@ api_test() {
   code_nokey=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H 'content-type: application/json' -d '{}' "$url/v1/messages" || true)
   code_wrong=$(printf 'header = "Authorization: Bearer not-the-key"\n' | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -K - -H 'content-type: application/json' -d '{}' "$url/v1/messages" || true)
   info "without a key -> HTTP $code_nokey; with a wrong key -> HTTP $code_wrong (both must be refused: 401/403)"
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   [[ $code_nokey =~ ^40[13]$ && $code_wrong =~ ^40[13]$ ]] && ok "the API key is enforced" \
     || die "the API key is NOT enforced (no key -> HTTP $code_nokey, wrong key -> HTTP $code_wrong): stop the server (./local-llm.sh stop)"
 }
@@ -188,6 +190,7 @@ show_status() {
   else
     info "server is not running"
   fi
+  # shellcheck disable=SC2015  # B is info/ok/warn (a printf), it cannot fail, so C runs only when A is false
   [[ -s $KEY_FILE ]] && info "api-key file exists: $KEY_FILE" || info "no api-key file yet"
 }
 

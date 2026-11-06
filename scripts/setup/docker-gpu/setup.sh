@@ -109,7 +109,9 @@ cmd_diag() {
     echo "== apt sources (docker/nvidia)"; ls -l /etc/apt/sources.list.d/ 2>&1; cat "$DOCKER_SRC" "$NV_LIST" 2>&1 || true
     echo "== nvidia-ctk"; nvidia-ctk --version 2>&1 || true
     echo "== host GPU"; nvidia-smi 2>&1 | head -15 || true
-    echo "== /usr/lib/wsl/lib"; ls -l /usr/lib/wsl/lib 2>&1 | head -20
+    echo "== /usr/lib/wsl/lib"
+    # shellcheck disable=SC2012  # a human-readable listing for the log, not a file loop
+    ls -l /usr/lib/wsl/lib 2>&1 | head -20
     echo "== iptables backend"; update-alternatives --display iptables 2>&1 | head -4 || true
     echo "== state dir"; ls -lR "$BACKUP_DIR" "$CREATED_DIR" 2>&1; cat "$SUMMARY" 2>&1 | tail -20
   } >"$f" 2>&1

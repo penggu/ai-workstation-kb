@@ -131,6 +131,7 @@ command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required (it builds the settings JSON)" >&2; exit 1; }
 
 TUNNEL_PID=""
+# shellcheck disable=SC2329  # called from the EXIT trap below
 cleanup() { if [[ -n $TUNNEL_PID ]]; then kill "$TUNNEL_PID" 2>/dev/null || true; wait "$TUNNEL_PID" 2>/dev/null || true; TUNNEL_PID=""; fi; }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -171,9 +172,11 @@ strata_up() {
 }
 # The same two checks on the GPU machine, through ssh (remote mode): no tunnel is needed to find out what runs there.
 remote_strata_up() {
+  # shellcheck disable=SC2029  # the ports and key paths are validated near the top and are meant to expand here
   ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s --connect-timeout 2 --max-time 5 http://127.0.0.1:$SPORT/health" 2>/dev/null |
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
 }
+# shellcheck disable=SC2029  # the ports and key paths are validated near the top and are meant to expand here
 remote_llama_up() { [[ $(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:$PORT/health" 2>/dev/null) == 200 ]]; }
 
 STRATA_REMOTE=0; REMOTE_CHECKED=0
@@ -223,7 +226,9 @@ if [[ $BACKEND == strata ]]; then
     # was started without a key and the constant token is right.
     if [[ -z $STRATA_TOKEN_FILE ]]; then
       # exit 255 = ssh itself failed; exit 1 = no key file there (Strata runs without a key): the constant token stays
-      rc=0; RT=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "test -e $STRATA_REMOTE_KEY_FILE && cat $STRATA_REMOTE_KEY_FILE" 2>/dev/null) || rc=$?
+      rc=0
+      # shellcheck disable=SC2029  # the ports and key paths are validated near the top and are meant to expand here
+      RT=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "test -e $STRATA_REMOTE_KEY_FILE && cat $STRATA_REMOTE_KEY_FILE" 2>/dev/null) || rc=$?
       ((rc != 255)) || { echo "could not read the Strata key over ssh from '$SSH_HOST' (is ssh key login working?)" >&2; exit 1; }
       [[ -z $RT ]] || STRATA_TOKEN=$RT
       unset RT rc
@@ -253,6 +258,7 @@ else
   command -v ssh >/dev/null || { echo "ssh is required for remote mode" >&2; exit 1; }
   [[ -n $SSH_HOST ]] || { echo "no API key at $KEY_FILE, so this looks like a remote machine, but LOCAL_LLM_SSH_HOST is not set (see the header of this script)" >&2; exit 1; }
   # The key comes over SSH into a variable; it appears in no argument list.
+  # shellcheck disable=SC2029  # the ports and key paths are validated near the top and are meant to expand here
   TOKEN=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "cat $REMOTE_KEY_FILE" 2>/dev/null) || TOKEN=""
   [[ -n $TOKEN ]] || { echo "could not read the API key over ssh from '$SSH_HOST' (is ssh key login working, and is local-llm.sh start done on that machine?)" >&2; exit 1; }
   open_tunnel "$TUNNEL_PORT" "$PORT"

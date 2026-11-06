@@ -82,6 +82,7 @@ st1_undo() {
   rmdir "$DATA_DIR/terminal" 2>/dev/null || true      # only if now empty
   rm -f -- "$VERSION_FILE"
   local left; left=$(ls -d "$DATA_DIR"/* "$HOME/.strata" 2>/dev/null || true)
+  # shellcheck disable=SC2001  # indenting every line: sed is clearer than a parameter expansion
   [[ -z $left ]] || { info "NOT removed (created later by 'strata launch', engine/models/settings; delete yourself if you want):"; echo "$left" | sed 's/^/    /'; }
 }
 
