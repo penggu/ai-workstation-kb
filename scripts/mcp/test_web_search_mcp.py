@@ -4,6 +4,7 @@
   python3 scripts/mcp/test_web_search_mcp.py            # offline tests
   AIW_NET=1 uv run --no-project --with ddgs==9.16.0 python scripts/mcp/test_web_search_mcp.py   # + real-library canary
 """
+import io
 import json
 import os
 import subprocess
@@ -12,6 +13,9 @@ import tempfile
 import textwrap
 import threading
 import unittest
+from unittest import mock
+
+import web_search_mcp as server
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -129,6 +133,53 @@ class T(unittest.TestCase):
         r = c.send("initialize", {"protocolVersion": "1999-01-01"})
         self.assertEqual(r["result"]["protocolVersion"], "2025-03-26"); c.close()
 
+    def test_invalid_params_do_not_end_server(self):
+        for method in ("initialize", "tools/call", "ping", "tools/list"):
+            for params in ([], [1], "bad", "", 42, False):
+                with self.subTest(method=method, params=params):
+                    c = self.client()
+                    try:
+                        self.assertEqual(c.send(method, params)["error"]["code"], -32602)
+                        self.assertEqual(c.send("ping")["result"], {})
+                    finally:
+                        c.close()
+
+    def test_invalid_messages_and_responses_do_not_end_server(self):
+        lines = [[], "text", None, {"jsonrpc": "2.0", "id": 1},
+                 {"jsonrpc": "2.0", "id": 2, "method": 42}]
+        request = {"jsonrpc": "2.0", "id": 9, "method": "ping"}
+        ignored = [{"jsonrpc": "2.0", "id": 3, "result": {}},
+                   {"jsonrpc": "2.0", "id": 4, "error": {"code": -32603}},
+                   {"jsonrpc": "2.0", "method": "notifications/initialized", "params": []}]
+        out = subprocess.run([sys.executable, SERVER], input="\n".join(map(json.dumps, lines + ignored + [request])) + "\n",
+                             capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        replies = [json.loads(line) for line in out.stdout.splitlines()]
+        self.assertEqual([r["error"]["code"] for r in replies[:-1]], [-32600]*5)
+        self.assertEqual(replies[-1]["result"], {})
+        self.assertEqual(replies[-1]["id"], 9)
+
+    def test_unexpected_handler_error_preserves_loop(self):
+        requests = [{"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    {"jsonrpc": "2.0", "id": 2, "method": "ping"}]
+        original = server.handle
+        def handle(msg):
+            if msg.get("id") != 2:
+                raise RuntimeError("PRIVATE-EXCEPTION-TEXT")
+            original(msg)
+        output, errors = io.StringIO(), io.StringIO()
+        with mock.patch.object(server, "handle", side_effect=handle), \
+             mock.patch("sys.stdin", io.StringIO("\n".join(map(json.dumps, requests)))), \
+             mock.patch("sys.stdout", output), mock.patch("sys.stderr", errors):
+            server.main()
+        replies = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(replies), 2)
+        self.assertEqual(replies[0]["id"], 1)
+        self.assertEqual(replies[0]["error"]["code"], -32603)
+        self.assertEqual(replies[1]["result"], {})
+        self.assertNotIn("PRIVATE-EXCEPTION-TEXT", output.getvalue() + errors.getvalue())
+
     # ---- tavily
     def test_tavily_answer_names_provider_and_warns(self):
         c = self.with_key(); text, err = c.call(query="china ai news", max_results=3); stderr = c.close()
@@ -200,6 +251,7 @@ class T(unittest.TestCase):
                 self.assertEqual(r["error"]["code"], -32602, (method, bad))
         for raw in ('[1, 2]', '"x"', '5', 'null', '{"jsonrpc": "2.0", "id": 99}'):   # non-dict message / missing method
             c.p.stdin.write(raw + "\n"); c.p.stdin.flush()
+            self.assertEqual(json.loads(c.p.stdout.readline())["error"]["code"], -32600)
         self.assertEqual(c.send("ping")["result"], {})          # still alive, and no stray replies queued before this one
         self.assertIsNone(c.p.poll()); c.close()
 

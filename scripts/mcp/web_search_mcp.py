@@ -207,10 +207,14 @@ def reply(msg_id, result=None, error=None):
 
 def handle(msg):
     if not isinstance(msg, dict):
+        reply(None, error={"code": -32600, "message": "invalid request"})
         return
     method, msg_id = msg.get("method"), msg.get("id")
-    if method is None:
+    if method is None and ("result" in msg or "error" in msg):
         return                                           # a response to something we never sent
+    if not isinstance(method, str):
+        reply(msg_id, error={"code": -32600, "message": "invalid request"})
+        return
     if msg_id is None:
         return                                           # notifications (initialized, cancelled, ...) need no answer
     params = msg.get("params")
@@ -258,11 +262,11 @@ def main():
             handle(msg)
         except Exception as e:                           # one bad request must not end the server
             log("unexpected %s" % type(e).__name__)
-            try:
-                reply(msg.get("id") if isinstance(msg, dict) else None,
-                      error={"code": -32603, "message": "internal error"})
-            except Exception:
-                pass
+            if isinstance(msg, dict) and msg.get("id") is not None:
+                try:
+                    reply(msg["id"], error={"code": -32603, "message": "internal error"})
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
