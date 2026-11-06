@@ -136,16 +136,18 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-health() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1/health" 2>/dev/null || true; }
+# Every curl below talks to 127.0.0.1 (here or on the GPU machine): it connects within milliseconds or there is no
+# server. --connect-timeout keeps a silently dropped connection (some firewalls and sandboxes) from costing --max-time.
+health() { curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 "$1/health" 2>/dev/null || true; }
 # Does something accept connections on 127.0.0.1:$1? A connection that is refused, and also one that is silently dropped
 # (some firewalls and sandboxes do that), never connects, so curl reports time_connect 0.
-port_in_use() { local t; t=$(curl -s -o /dev/null --max-time 2 -w '%{time_connect}' "http://127.0.0.1:$1/" 2>/dev/null) || true; [[ -n ${t//[0.,]/} ]]; }
+port_in_use() { local t; t=$(curl -s -o /dev/null --connect-timeout 1 --max-time 2 -w '%{time_connect}' "http://127.0.0.1:$1/" 2>/dev/null) || true; [[ -n ${t//[0.,]/} ]]; }
 
 # Does a Strata server answer on $SPORT? Prints "MODEL CTX" (read from the server, checked against strict patterns).
 # $1 = the token; it goes in through stdin, never on a command line. $2 = the port to ask.
 strata_probe() {
   local body
-  body=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --noproxy '*' --max-time 5 -H @- "http://127.0.0.1:$2/v1/models" 2>/dev/null) || return 1
+  body=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --noproxy '*' --connect-timeout 2 --max-time 5 -H @- "http://127.0.0.1:$2/v1/models" 2>/dev/null) || return 1
   printf '%s' "$body" | python3 -I -c '
 import json, re, sys
 try:
@@ -164,15 +166,15 @@ STRATA_TOKEN="strata-local"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
 # /health needs no credential, also on a Strata server started with a key, and names the service.
 strata_up() {
-  curl -s --noproxy '*' --max-time 5 "http://127.0.0.1:$SPORT/health" 2>/dev/null |
+  curl -s --noproxy '*' --connect-timeout 2 --max-time 5 "http://127.0.0.1:$SPORT/health" 2>/dev/null |
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
 }
 # The same two checks on the GPU machine, through ssh (remote mode): no tunnel is needed to find out what runs there.
 remote_strata_up() {
-  ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s --max-time 5 http://127.0.0.1:$SPORT/health" 2>/dev/null |
+  ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s --connect-timeout 2 --max-time 5 http://127.0.0.1:$SPORT/health" 2>/dev/null |
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("service") == "strata" else 1)' 2>/dev/null
 }
-remote_llama_up() { [[ $(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:$PORT/health" 2>/dev/null) == 200 ]]; }
+remote_llama_up() { [[ $(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:$PORT/health" 2>/dev/null) == 200 ]]; }
 
 STRATA_REMOTE=0; REMOTE_CHECKED=0
 if [[ $BACKEND == auto ]]; then
