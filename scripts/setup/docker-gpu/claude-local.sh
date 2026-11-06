@@ -33,7 +33,7 @@
 # Remote mode works for both backends. With --backend strata (or auto, which asks the GPU machine over ssh what runs
 # there) it tunnels STRATA_TUNNEL_PORT (18090) to the GPU machine's STRATA_PORT (8090) and reads the key from
 # STRATA_REMOTE_KEY_FILE there (default ~/.local/state/ai-workstation/strata/api-key; without a file the constant
-# token is used; STRATA_TOKEN_FILE on this machine overrides). Not yet confirmed on a real Mac, see issue #24.
+# token is used; STRATA_TOKEN_FILE on this machine overrides). Confirmed on a personal Mac (2026-11-05, issue #24).
 # Other settings (all optional):
 #   LOCAL_LLM_PORT (8080, the server's port on the GPU machine)   LOCAL_LLM_TUNNEL_PORT (18080, local end of the tunnel)
 #   LOCAL_LLM_CTX (98304; must equal the server's --ctx)  LOCAL_LLM_MAX_OUTPUT (16000)  LOCAL_LLM_MODEL (local-qwen)
