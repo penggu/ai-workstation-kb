@@ -1,8 +1,12 @@
 # Claude Code on a local model (llama.cpp in Docker, WSL2)
 
-> **Last verified:** 2026-11-02 · **Status:** draft, works for short interactive sessions; quality and long sessions not yet measured here · **Claude Code:** 2.1.317 · **Server:** llama.cpp build 12033 (commit 785322d17, image pinned by digest) · **Model:** Qwen3.8-27B `UD-IQ3_XXS`
+> **Status:** draft, works for short interactive sessions; quality and long sessions not yet measured here.
 >
-> Machine and quantisation data: `qwen-27b-quantisation-16gb.md`. Scripts: `scripts/setup/docker-gpu/local-llm.sh`, `claude-local.sh`, `gguf_template.py`.
+> **llama.cpp path, last verified 2026-11-02:** Claude Code 2.1.317 · llama.cpp build 12033 (commit 785322d17, image pinned by digest) · Qwen3.8-27B `UD-IQ3_XXS`. Not re-run since; Claude Code 2.1.319 is installed on the GPU machine but no session was run with it.
+>
+> **Strata path, last verified 2026-11-05:** Strata 0.1.56 · Qwen3.8-Flash-Next `Q2_0`, 128K context, started with an API key. Verified that day: key behaviour, `claude-local.sh --dry-run` and `-p`, and an interactive session on a Mac through an SSH tunnel. The Claude Code version of that Mac session was not recorded.
+>
+> Machine and quantisation data: `qwen-27b-quantisation-16gb.md`. Scripts: `scripts/setup/docker-gpu/local-llm.sh`, `claude-local.sh`, `gguf_template.py`, `scripts/setup/strata/strata.sh`.
 
 ## What this gives you
 
@@ -35,6 +39,27 @@ cd <your project>
 | From another machine | yes (SSH tunnel) | yes (SSH tunnel, confirmed on a personal Mac, see below) |
 
 `auto` finds Strata through `/health`, which answers without a credential and names the service, so it also finds a Strata that was started with a key; the llama.cpp key is sent only to the llama.cpp backend, a Strata token only to Strata. Tested with stand-in servers (both answering, either alone, wrong port, token file) and against a real keyed Strata (`--dry-run`, then a real `-p` prompt that returned the answer). **A real Claude Code session on Strata worked on a Mac through the tunnel (2026-11-05, see "From another machine"); what is still missing is a measured coding task (task, time, corrections, tests).** Strata's own `strata connect claude-code --check` (one prompt, one tool call) passed. We did not use its `--write` option because it merges the settings into `~/.claude/settings.json`, which would redirect every Claude Code session.
+
+#### Strata: install and first measurements (2026-11-04)
+
+The model is Qwen3.8-Flash-Next, not the Qwen3.8-27B of the llama.cpp path.
+
+- **Install the terminal:** `scripts/setup/strata/strata.sh apply` (run `status` or `--dry-run` first). It downloads the project's `install.sh`, refuses to run it unless its SHA-256 is the one reviewed (release v0.2.10, read on 2026-11-04), and then installs under `~/.local` with no sudo. `undo` removes only what it created.
+- **Model:** about 68 GB for Q2_0, resumable, downloaded by hand into `~/strata-data/models/Q2_0`: `setsid nohup strata install --family qwen --model Q2_0 --yes --no-start --data-dir ~/strata-data > <logfile> 2>&1 &`.
+- **Engine:** downloaded by `strata launch` the first time you start a model. The script does not do this step.
+- **Start:** stop the llama.cpp server first; Strata needs the whole GPU. Launch command: see the next section.
+
+Measured on 2026-11-04 (single samples, Q2_0, one machine):
+
+| What | Value |
+|---|---|
+| First load | about 300 s |
+| GPU memory | 14.9 GiB |
+| RAM | 37 GB |
+| One short prompt, thinking on | 991 output tokens in 16.2 s |
+| The same prompt, thinking off | 196 output tokens in 6.5 s |
+
+These are one run each: no repeats, no long prompt, no warm-up separation, and the prompt was short. Treat them as an order of magnitude. They say nothing about quality on real coding tasks.
 
 #### Strata: API key and network (observed 2026-11-05)
 
