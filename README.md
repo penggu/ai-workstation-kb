@@ -12,14 +12,14 @@ Notes, scripts and measurements from setting up a local-AI workstation (RTX 5070
 
 | Folder | What is there |
 |---|---|
-| `docs/base/` | machine setup that other pages build on (`tailscale-wsl.md`) |
+| `docs/base/` | machine setup that other pages build on: `tailscale-wsl.md`, `passwordless-llm-controller.md` |
 | `docs/recipes/` | how to run a workload, with measured results: `claude-code-local.md`, `qwen-27b-quantisation-16gb.md`, `llm-chat.md` (Ollama chat) |
 | `docs/research/` | sourced reading notes: `strata-telemetry-and-api-key.md` (what Strata sends, how its key works) |
 | `docs/benchmarks/` | how the measurements are made and what they can and cannot tell you |
 | `docs/agents/` | how the issue tracker and domain docs are laid out, for coding agents |
 | `data/benchmarks/` | raw results behind the tables |
 
-There is no page yet for the root-owned controller (`aiw-llm-ctl`, installed by `sudo-local-llm.sh`) that lets the normal user start and stop the llama.cpp container without a sudo password or docker access; its design is in the two scripts' headers (issue #12).
+Optional: `docs/base/passwordless-llm-controller.md` explains the root-owned controller (`aiw-llm-ctl`, installed by `sudo-local-llm.sh`) that lets the normal user start and stop the llama.cpp container without a sudo password or docker access. Read it before installing it.
 
 ## Scripts
 

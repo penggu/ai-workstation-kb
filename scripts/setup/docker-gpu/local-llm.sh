@@ -4,7 +4,8 @@
 # what Claude Code speaks. Loopback only, API key required, runs as your normal user, never as root.
 #
 #   ./local-llm.sh status | start | stop | restart | test | undo
-#   After ./sudo-local-llm.sh apply (a root-owned, validating controller) none of these ask for a password.
+#   After ./sudo-local-llm.sh apply (a root-owned, validating controller) none of these ask for a password
+#   (what it installs, its limits and how to undo it: docs/base/passwordless-llm-controller.md).
 #   restart = stop, then start with the options given: the way to change --reasoning, --ctx, --kv or --quant
 #   (they are fixed at server start; `start` on a running server changes nothing and says so).
 #   options: --quant Q (default UD-IQ3_XXS)   --ctx N (default 98304)   --kv f16|q8_0 (default q8_0)
