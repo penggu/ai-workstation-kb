@@ -86,6 +86,40 @@ Details and sources: [research note](../research/strata-telemetry-and-api-key.md
   The preset stores the model, context, vision, drafting, port and access mode, **and the API key** (checked 2026-11-05: `--show-key` prints it, and the saved run config `~/.local/state/strata/launch/q2_0-128k-local.json` is mode 600). So `--preset` needs no `STRATA_API_KEY`, but the key now exists in that file as well as in our key file; if you replace one, replace both (and `STRATA_TOKEN_FILE` must point at the key the server really uses). Other flags on the same command override the preset for that start only. After starting, `"images"` in `/health` shows whether vision is on (`false` = off).
 - **Not verified:** a long idle run, a packet capture, the engine binary itself.
 
+#### Strata: `--stop` is slow, ends with an error, and Windows freezes (observed 2026-11-14, not reproduced)
+
+**What the owner reports:** after sessions on Strata through `claude-local.sh`, stopping Strata makes Windows 11 freeze for several minutes, and `strata launch --stop` ends with `strata: runtime control returned an invalid response` after about 48 s. The owner says every earlier stop did the same. Only two crash logs survive (2026-11-05 and 2026-11-14: each profile keeps only its latest log), and they have identical call stacks.
+
+**What the logs show** (Strata 0.1.56, `~/.local/state/strata/runtime/launch-<preset>.host.log`):
+
+1. `--stop` asks the control process to stop the engine. It sends SIGTERM and waits `shutdown_timeout + 8` s (default 30, so 38 s). `strata launch --help` has no flag for that timeout.
+2. The engine did not exit in time, so the control process kills the engine's process tree and waits 10 more seconds. The engine was still alive after that: 48 s in total, which matches the `took 48s` the owner saw.
+3. That second wait is not guarded. `TimeoutExpired` escapes, the control process crashes, and the client gets no valid reply: this is the "invalid response". It is a bug in Strata's stop path, independent of why the engine was slow.
+4. The control process's `finally` block stops the engine again, with the same 38 + 10 s wait, so its log's last write came 96 s after the stop.
+5. The engine did exit in the end (its log ends with `stopped`). So the stop worked; only the report was wrong.
+
+**Kernel log of 2026-11-14, `dmesg`:** about 19 s after the stop request, `dxgk: dxgvmb_send_sync_msg: wait_for_completion failed` and `dxgkio_destroy_allocation: Ioctl failed: -512` (the call was interrupted by a signal while the GPU memory was being freed through WSL's GPU driver); about 2 minutes later, `process_completion_packet: did not find packet to complete`. An engine that survives SIGKILL for 48 s is stuck inside the kernel, here probably in that GPU memory release. Not proven.
+
+**Not reproduced.** Three trials on 2026-11-14, each followed by `strata launch --stop`:
+
+| Before the stop | Stop took | Result |
+|---|---|---|
+| fresh start, no requests | 5.9 s | exit 0, no crash |
+| three API requests of about 9K, 18K and 32K tokens (WSL memory used 43.8 GB, GPU 15.1 GiB) | 6.8 s | exit 0, no crash |
+| two `claude-local.sh -p` sessions that read files | 16.1 s | exit 0, no crash |
+
+In all three, no new `wait_for_completion` or `destroy_allocation` lines appeared, the control log did not change, and a once-per-second monitor inside WSL showed no gap longer than 3 s. Limits: one run each; non-interactive `-p` sessions, not a long interactive one; I cannot see Windows from inside WSL, so a freeze that only affects the Windows side would not show.
+
+**The machine** (the owner confirmed Windows has 64 GB): `.wslconfig` has `memory=58720256000` (about 54.7 GiB) and `swap=17179869184` (16 GiB), so Windows keeps about 9 GiB for itself. While Strata ran, WSL used 40 to 44 GB and showed 0.3 to 0.6 GB free. **Hypothesis, not tested:** the host is squeezed into a few GB, starts paging, or stalls while the engine hands tens of GB back at exit. Nothing measured on the Windows side supports or rules this out.
+
+**What to record the next time it happens** (before restarting anything):
+
+- Before the stop, in another WSL window: `watch -n2 'free -m | head -2; nvidia-smi --query-gpu=memory.used --format=csv,noheader'`. Open Windows Task Manager (Performance: Memory, GPU) and note which is full when it freezes.
+- Right after it: `dmesg | tail -40`, `ps -eo pid,stat,comm | grep -E '^ *[0-9]+ D'`, and a copy of `~/.local/state/strata/runtime/launch-<preset>.host.log` (the next start overwrites it).
+- Ignore `dxgkio_escape: Ioctl failed: -22` lines. Every `nvidia-smi` call produces three of them; they are not a sign of trouble.
+
+**Not tried:** lowering `memory=` in `.wslconfig` (needs `wsl --shutdown`, which ends every WSL session, SSH and Tailscale included). Strata used up to about 44 GB, so 48 GiB is tight and may stop the model loading. If you try it, change one thing and keep the logs above.
+
 ### From another machine (for example a Mac)
 
 The server listens only on the GPU machine's `127.0.0.1`. `claude-local.sh` detects that there is no local key file and switches to remote mode: it reads the API key over SSH, opens a tunnel (`ssh -N -L`, bound to `127.0.0.1` on your machine, local port 18080), runs the session, and closes the tunnel when the session ends.
